@@ -59,57 +59,128 @@ const formatMinutesToString = (totalMins: number): string => {
   return `${sign}${h}:${m.toString().padStart(2, "0")}`;
 };
 
+// export const processShift = (shift: ShiftRecord): ShiftCalculated => {
+//   const weekend = isWeekend(shift.date);
+//   const totalWorkedMins = calculateTotalMinutes(
+//     shift.checkIn,
+//     shift.checkOut,
+//     shift.lunchBreakMinutes,
+//   );
+
+//   let netMins = 0;
+//   let overtimeMinutes = 0;
+
+//   // 1. NET ÇALIŞMA HESABI
+//   if (
+//     noWorkStatuses.includes(shift.status) ||
+//     !shift.checkIn ||
+//     !shift.checkOut
+//   ) {
+//     netMins = 0;
+//   } else {
+//     netMins = weekend ? 0 : Math.min(totalWorkedMins, 540); // Max 9 saat (540 dk)
+//   }
+
+//   // 2. TEMEL FAZLA MESAİ HESABI
+//   if (zeroMesaiStatuses.includes(shift.status)) {
+//     overtimeMinutes = 0;
+//   } else if (shift.status === "Gelmedi") {
+//     // Sadece "Gelmedi" işaretliyse -9 saat kes.
+//     overtimeMinutes = weekend ? 0 : -540;
+//   } else if (!shift.checkIn || !shift.checkOut) {
+//     // "Belirsiz" gibi giriş veya çıkış saati olmayan günleri 0 kabul et, kesinti yapma.
+//     overtimeMinutes = 0;
+//   } else {
+//     if (weekend) {
+//       overtimeMinutes = totalWorkedMins;
+//     } else {
+//       const threshold = shift.status === "Diğer" ? 540 : 570;
+//       overtimeMinutes = Math.max(0, totalWorkedMins - threshold);
+//     }
+//   }
+
+//   // 3. 🟢 GEÇ KALMA KESİNTİSİ (Temel hesabın üzerine uygulanır) 🟢
+//   if (shift.status === "Geç Kalma" && shift.checkIn) {
+//     const [inH, inM] = shift.checkIn.split(":").map(Number);
+//     const checkInMins = inH * 60 + inM;
+//     const targetStartMins = 7 * 60 + 30; // 07:30 (450 dakika)
+
+//     // Eğer 07:30'dan sonra geldiyse
+//     if (checkInMins > targetStartMins) {
+//       const lateMinutes = checkInMins - targetStartMins;
+//       // Mevcut mesai süresinden (ister 0 olsun, ister pozitif) geç kalınan dakikayı çıkar
+//       overtimeMinutes -= lateMinutes;
+//     }
+//   }
+
+//   return {
+//     ...shift,
+//     netWork: formatMinutesToString(netMins),
+//     overtime: formatMinutesToString(overtimeMinutes),
+//     rowColor: getRowColor(shift.date, shift.status),
+//   };
+// };
 export const processShift = (shift: ShiftRecord): ShiftCalculated => {
   const weekend = isWeekend(shift.date);
+
+  // 17:30 sonrasına kalınan mesailerde eklenecek akşam molası
+  let eveningBreak = 0;
+  if (shift.checkOut) {
+    const [outH, outM] = shift.checkOut.split(":").map(Number);
+    let outMins = outH * 60 + outM;
+
+    // Gece yarısını geçen çıkışlar
+    if (outMins < 450) outMins += 24 * 60;
+
+    // "Diğer" seçili DEĞİLSE 17:30 sonrası ekstra molayı ekle
+    if (shift.status !== "Diğer" && outMins >= 1080) {
+      eveningBreak = 30;
+    } else if (shift.status !== "Diğer" && outMins > 1050) {
+      eveningBreak = outMins - 1050;
+    }
+  }
+
+  const baseBreak = shift.status === "Diğer" ? 60 : shift.lunchBreakMinutes;
+  const effectiveBreak = baseBreak + eveningBreak;
+
   const totalWorkedMins = calculateTotalMinutes(
     shift.checkIn,
     shift.checkOut,
-    shift.lunchBreakMinutes,
+    effectiveBreak,
   );
 
   let netMins = 0;
   let overtimeMinutes = 0;
 
-  // 1. NET ÇALIŞMA HESABI
-  if (
-    noWorkStatuses.includes(shift.status) ||
-    !shift.checkIn ||
-    !shift.checkOut
-  ) {
+  // 1. KESİN DURUM KONTROLLERİ (Girilen saatleri ezer)
+  if (shift.status === "Gelmedi") {
+    // "Gelmedi" durumunda her zaman -9 saat (540 dakika) yazılır
     netMins = 0;
-  } else {
-    netMins = weekend ? 0 : Math.min(totalWorkedMins, 540); // Max 9 saat (540 dk)
-  }
-
-  // 2. TEMEL FAZLA MESAİ HESABI
-  if (zeroMesaiStatuses.includes(shift.status)) {
-    overtimeMinutes = 0;
-  } else if (shift.status === "Gelmedi") {
-    // Sadece "Gelmedi" işaretliyse -9 saat kes.
-    overtimeMinutes = weekend ? 0 : -540;
-  } else if (!shift.checkIn || !shift.checkOut) {
-    // "Belirsiz" gibi giriş veya çıkış saati olmayan günleri 0 kabul et, kesinti yapma.
+    overtimeMinutes = -540;
+  } else if (
+    ["Hafta Tatili", "Yıllık İzin", "Raporlu", "Resmi Tatil"].includes(
+      shift.status,
+    )
+  ) {
+    // İzin ve tatil durumlarında net mesai ve fazla mesai kesinlikle 0'dır
+    netMins = 0;
     overtimeMinutes = 0;
   } else {
-    if (weekend) {
-      overtimeMinutes = totalWorkedMins;
+    // 2. ÇALIŞTIĞI DURUMLAR (Statü boş veya "Diğer" ise)
+    if (!shift.checkIn || !shift.checkOut) {
+      netMins = 0;
+      overtimeMinutes = 0;
     } else {
-      const threshold = shift.status === "Diğer" ? 540 : 570;
-      overtimeMinutes = Math.max(0, totalWorkedMins - threshold);
-    }
-  }
+      // Normal çalışılan günler
+      netMins = weekend ? 0 : Math.min(totalWorkedMins, 540);
 
-  // 3. 🟢 GEÇ KALMA KESİNTİSİ (Temel hesabın üzerine uygulanır) 🟢
-  if (shift.status === "Geç Kalma" && shift.checkIn) {
-    const [inH, inM] = shift.checkIn.split(":").map(Number);
-    const checkInMins = inH * 60 + inM;
-    const targetStartMins = 7 * 60 + 30; // 07:30 (450 dakika)
-
-    // Eğer 07:30'dan sonra geldiyse
-    if (checkInMins > targetStartMins) {
-      const lateMinutes = checkInMins - targetStartMins;
-      // Mevcut mesai süresinden (ister 0 olsun, ister pozitif) geç kalınan dakikayı çıkar
-      overtimeMinutes -= lateMinutes;
+      if (weekend) {
+        // Hafta sonu çalışılan sürenin tamamı fazla mesaidir
+        overtimeMinutes = totalWorkedMins;
+      } else {
+        // Hafta içi 9 saati (540 dk) geçenler artı mesai, geçemeyenler eksi mesai olur
+        overtimeMinutes = totalWorkedMins - 540;
+      }
     }
   }
 
