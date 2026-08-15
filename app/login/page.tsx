@@ -11,11 +11,15 @@ export default function LoginPage() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
+    const aliasker =
+      username === process.env.NEXT_PUBLIC_USER1_USERNAME &&
+      password === process.env.NEXT_PUBLIC_USER1_PASSWORD;
 
-    if (
-      (username === "aliasker66" && password === "aliasker66") ||
-      (username === "ramazan06" && password === "ramazan06")
-    ) {
+    const ramazan =
+      username === process.env.NEXT_PUBLIC_USER2_USERNAME &&
+      password === process.env.NEXT_PUBLIC_USER2_PASSWORD;
+
+    if (aliasker || ramazan) {
       setError("");
 
       const days = rememberMe ? 30 : 1;
