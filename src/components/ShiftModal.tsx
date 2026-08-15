@@ -15,9 +15,6 @@
 //   "Yıllık İzin",
 //   "Raporlu",
 //   "Resmi Tatil",
-//   "Hafta Tatili",
-//   "Diğer",
-//   "Geç Kalma",
 // ];
 
 // export default function ShiftModal({
@@ -34,7 +31,7 @@
 //     status: "Çalıştı",
 //     checkIn: "",
 //     checkOut: "",
-//     lunchBreakMinutes: 60,
+//     lunchBreakMinutes: 0,
 //   });
 
 //   useEffect(() => {
@@ -49,14 +46,13 @@
 //         status: "Çalıştı",
 //         checkIn: "07:30",
 //         checkOut: "17:30",
-//         lunchBreakMinutes: 60,
+//         lunchBreakMinutes: 0,
 //       });
 //     }
 //   }, [editingShift, isOpen]);
 
 //   if (!isOpen) return null;
 
-//   // HTML <input type="date"> YYYY-MM-DD bekler. Bizdeki GG.AA.YYYY formatını çeviriyoruz.
 //   const formatForDatePicker = (dateStr: string) => {
 //     if (!dateStr) return "";
 //     const parts = dateStr.split(".");
@@ -66,7 +62,6 @@
 //     return dateStr;
 //   };
 
-//   // Takvimden YYYY-MM-DD geldiğinde tekrar GG.AA.YYYY formatına çeviriyoruz.
 //   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 //     const val = e.target.value;
 //     if (!val) return;
@@ -76,6 +71,8 @@
 //       setFormData({ ...formData, date: formatted });
 //     }
 //   };
+
+//   const isTimeDisabled = ["Yıllık İzin", "Raporlu"].includes(formData.status);
 
 //   return (
 //     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
@@ -95,7 +92,6 @@
 //         <div className="p-4 space-y-4">
 //           <div>
 //             <label className="block text-sm text-gray-600 mb-1">Tarih</label>
-//             {/* type="text" yerine type="date" eklendi */}
 //             <input
 //               type="date"
 //               value={formatForDatePicker(formData.date)}
@@ -126,11 +122,12 @@
 //               </label>
 //               <input
 //                 type="time"
+//                 disabled={isTimeDisabled}
 //                 value={formData.checkIn || ""}
 //                 onChange={(e) =>
 //                   setFormData({ ...formData, checkIn: e.target.value })
 //                 }
-//                 className="w-full border border-gray-300 rounded-lg p-2 outline-none focus:border-slate-500 text-gray-800"
+//                 className={`w-full border border-gray-300 rounded-lg p-2 outline-none focus:border-slate-500 text-gray-800 ${isTimeDisabled ? "bg-gray-100 cursor-not-allowed" : "bg-white"}`}
 //               />
 //             </div>
 //             <div>
@@ -139,29 +136,14 @@
 //               </label>
 //               <input
 //                 type="time"
+//                 disabled={isTimeDisabled}
 //                 value={formData.checkOut || ""}
 //                 onChange={(e) =>
 //                   setFormData({ ...formData, checkOut: e.target.value })
 //                 }
-//                 className="w-full border border-gray-300 rounded-lg p-2 outline-none focus:border-slate-500 text-gray-800"
+//                 className={`w-full border border-gray-300 rounded-lg p-2 outline-none focus:border-slate-500 text-gray-800 ${isTimeDisabled ? "bg-gray-100 cursor-not-allowed" : "bg-white"}`}
 //               />
 //             </div>
-//           </div>
-//           <div>
-//             <label className="block text-sm text-gray-600 mb-1">
-//               Mola (Dakika)
-//             </label>
-//             <input
-//               type="number"
-//               value={formData.lunchBreakMinutes}
-//               onChange={(e) =>
-//                 setFormData({
-//                   ...formData,
-//                   lunchBreakMinutes: Number(e.target.value),
-//                 })
-//               }
-//               className="w-full border border-gray-300 rounded-lg p-2 outline-none focus:border-slate-500 text-gray-800"
-//             />
 //           </div>
 //         </div>
 
@@ -186,6 +168,7 @@
 //     </div>
 //   );
 // }
+
 import { useState, useEffect } from "react";
 import { ShiftRecord } from "../types";
 import { X } from "lucide-react";
@@ -203,6 +186,7 @@ const statuses = [
   "Yıllık İzin",
   "Raporlu",
   "Resmi Tatil",
+  "Hafta Tatili",
 ];
 
 export default function ShiftModal({
@@ -260,7 +244,13 @@ export default function ShiftModal({
     }
   };
 
-  const isTimeDisabled = ["Yıllık İzin", "Raporlu"].includes(formData.status);
+  // Gelmedi, Yıllık İzin, Raporlu, Hafta Tatili seçilirse kutular kilitlenir
+  const isTimeDisabled = [
+    "Yıllık İzin",
+    "Raporlu",
+    "Gelmedi",
+    "Hafta Tatili",
+  ].includes(formData.status);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
@@ -291,9 +281,22 @@ export default function ShiftModal({
             <label className="block text-sm text-gray-600 mb-1">Durum</label>
             <select
               value={formData.status}
-              onChange={(e) =>
-                setFormData({ ...formData, status: e.target.value })
-              }
+              onChange={(e) => {
+                const newStatus = e.target.value;
+                const shouldClearTimes = [
+                  "Gelmedi",
+                  "Yıllık İzin",
+                  "Raporlu",
+                  "Hafta Tatili",
+                ].includes(newStatus);
+                setFormData({
+                  ...formData,
+                  status: newStatus,
+                  // Çalışılmayan bir durum seçilirse saatleri anında temizle
+                  checkIn: shouldClearTimes ? "" : formData.checkIn,
+                  checkOut: shouldClearTimes ? "" : formData.checkOut,
+                });
+              }}
               className="w-full border border-gray-300 rounded-lg p-2 outline-none focus:border-slate-500 bg-white text-gray-800"
             >
               {statuses.map((s) => (
