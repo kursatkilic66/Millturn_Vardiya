@@ -19,7 +19,10 @@ export default function LoginPage() {
       username === process.env.NEXT_PUBLIC_USER2_USERNAME &&
       password === process.env.NEXT_PUBLIC_USER2_PASSWORD;
 
-    if (aliasker || ramazan) {
+    const admin =
+      username === process.env.NEXT_PUBLIC_ADMIN_USERNAME &&
+      password === process.env.NEXT_PUBLIC_ADMIN_PASSWORD;
+    if (aliasker || ramazan || admin) {
       setError("");
 
       const days = rememberMe ? 30 : 1;
