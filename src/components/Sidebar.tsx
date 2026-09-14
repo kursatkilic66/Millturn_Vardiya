@@ -81,7 +81,7 @@ export default function Sidebar({
   selectedEmployee,
   onSelectEmployee,
 }: SidebarProps) {
-  const employees = ["Bahri", "Batın", "Kerim"];
+  const employees = ["Bahri", "Batın", "Kerim", "Furkan"];
   const router = useRouter();
 
   const handleLogout = () => {
