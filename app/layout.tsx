@@ -13,17 +13,24 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mıllturn Vardiya",
-  description: "An app for Mıllturn Company's Shifts",
+  title: "Millturn | Vardiya Yönetim Sistemi",
+  description: "Millturn Kurumsal Vardiya ve Mesai Takip Portalı",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html
-      lang="en"
+      lang="tr"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900 selection:bg-slate-800 selection:text-white">
+        {children}
+      </body>
     </html>
   );
 }
+

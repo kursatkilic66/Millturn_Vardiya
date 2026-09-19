@@ -167,7 +167,7 @@ export const processShift = (shift: ShiftRecord): ShiftCalculated => {
     // 2. ÇALIŞMA SÜRESİ HESABI
     const [inH, inM] = shift.checkIn.split(":").map(Number);
     const [outH, outM] = shift.checkOut.split(":").map(Number);
-    let inMins = inH * 60 + inM;
+    const inMins = inH * 60 + inM;
     let outMins = outH * 60 + outM;
 
     // Gece yarısını geçen vardiya

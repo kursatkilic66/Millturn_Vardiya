@@ -18,6 +18,7 @@ export default function Page() {
     const tokenValue = authCookie ? authCookie.split("=")[1] : null;
 
     if (tokenValue === "aliasker_logged_in") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsAuthorized(true);
     } else {
       router.replace("/login");
@@ -27,8 +28,20 @@ export default function Page() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <p className="text-gray-600 font-medium">Yükleniyor...</p>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white">
+        <div className="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 p-2.5 flex items-center justify-center mb-4 shadow-xl">
+          <img
+            src="/millturn-logo-transparent.png"
+            alt="Millturn"
+            className="w-full h-full object-contain brightness-110 animate-pulse"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-slate-400 animate-ping" />
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            Oturum Doğrulanıyor...
+          </p>
+        </div>
       </div>
     );
   }
