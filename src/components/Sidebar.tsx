@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { X, LogOut, Users, Search, Check, Shield, UserPlus, Settings2 } from "lucide-react";
+import { X, LogOut, Users, Search, Check, Shield, UserPlus, Settings2, Car } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Employee } from "../types";
 
@@ -12,6 +12,8 @@ interface SidebarProps {
   employees: Employee[];
   onOpenAddEmployee: () => void;
   onOpenEditEmployee: (emp: Employee) => void;
+  activeModule?: "vardiya" | "araclar";
+  onSelectModule?: (module: "vardiya" | "araclar") => void;
 }
 
 export default function Sidebar({
@@ -22,6 +24,8 @@ export default function Sidebar({
   employees,
   onOpenAddEmployee,
   onOpenEditEmployee,
+  activeModule = "vardiya",
+  onSelectModule,
 }: SidebarProps) {
   const [searchTerm, setSearchTerm] = useState("");
   const router = useRouter();
@@ -81,6 +85,36 @@ export default function Sidebar({
               <p className="text-xs text-slate-400">Personel & Vardiya Yönetimi</p>
             </div>
           </div>
+        </div>
+
+        {/* Modül Değiştirici (Vardiya / Araç Takip) */}
+        <div className="p-3 bg-slate-50 border-b border-slate-200/80 flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => {
+              onSelectModule?.("vardiya");
+            }}
+            className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+              activeModule === "vardiya"
+                ? "bg-slate-900 text-white shadow-xs"
+                : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+            }`}
+          >
+            <Users size={14} />
+            Vardiya
+          </button>
+          <button
+            onClick={() => {
+              onSelectModule?.("araclar");
+            }}
+            className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+              activeModule === "araclar"
+                ? "bg-blue-600 text-white shadow-xs"
+                : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+            }`}
+          >
+            <Car size={14} />
+            Araç Takip
+          </button>
         </div>
 
         {/* Personel Arama Kutusu */}
