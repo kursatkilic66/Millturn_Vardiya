@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-// Dashboard bileşenini doğru yoldan çekiyoruz
 import Dashboard from "@/src/components/dashboard";
+import { subscribeToAuth } from "@/src/lib/authService";
 
 export default function Page() {
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -10,20 +10,17 @@ export default function Page() {
   const router = useRouter();
 
   useEffect(() => {
-    // Çerezlerde auth_token var mı kontrol et
-    const cookies = document.cookie.split(";");
-    const authCookie = cookies.find((cookie) =>
-      cookie.trim().startsWith("auth_token="),
-    );
-    const tokenValue = authCookie ? authCookie.split("=")[1] : null;
-
-    if (tokenValue === "aliasker_logged_in") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setIsAuthorized(true);
-    } else {
-      router.replace("/login");
-    }
-    setIsLoading(false);
+    // Firebase Auth oturumunu dinle (sahte çerez kontrolü kaldırıldı)
+    const unsubscribe = subscribeToAuth((user) => {
+      if (user) {
+        setIsAuthorized(true);
+      } else {
+        setIsAuthorized(false);
+        router.replace("/login");
+      }
+      setIsLoading(false);
+    });
+    return unsubscribe;
   }, [router]);
 
   if (isLoading) {
@@ -50,6 +47,5 @@ export default function Page() {
     return null;
   }
 
-  // Orijinal dashboard arayüzü yüklenir
   return <Dashboard />;
 }

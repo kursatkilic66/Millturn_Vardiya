@@ -1,7 +1,10 @@
 // src/lib/firebase.ts
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 
+// Not: Bu yapılandırma değerleri Firebase tasarımı gereği istemciye açıktır (gizli değildir).
+// Asıl güvenlik Firebase Authentication + Firestore Security Rules (firestore.rules) ile sağlanır.
 const firebaseConfig = {
   apiKey: "AIzaSyCj1_cBwOPhA3pIK_mYrjTzM8rVHAuxmQs",
   authDomain: "millturn-vardiya.firebaseapp.com",
@@ -15,3 +18,4 @@ const firebaseConfig = {
 // Next.js SSR sırasında birden fazla Firebase başlatılmasını önlemek için kontrol
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const db = getFirestore(app);
+export const auth = getAuth(app);

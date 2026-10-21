@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import {
   Menu,
   Plus,
@@ -16,45 +16,38 @@ import {
   Users,
   LayoutGrid,
   Table2,
+  LogOut,
 } from "lucide-react";
-import {
-  collection,
-  getDocs,
-  addDoc,
-  updateDoc,
-  doc,
-  query,
-  where,
-  deleteDoc,
-  setDoc,
-} from "firebase/firestore";
 import { ShiftCalculated, ShiftRecord, Employee } from "@/src/types";
 import { calculateMonthlyTotals, processShift } from "@/src/utils/shiftLogic";
 import { exportShiftsToExcel } from "@/src/utils/excelExport";
-import { db } from "@/src/lib/firebase";
+import { logout } from "@/src/lib/authService";
+import { saveShift, deleteShift } from "@/src/lib/shiftService";
+import { useEmployees } from "@/src/hooks/useEmployees";
+import { useShifts } from "@/src/hooks/useShifts";
 import Sidebar from "@/src/components/Sidebar";
 import ShiftCard from "@/src/components/ShiftCard";
 import SummaryBar from "@/src/components/SummaryBar";
 import ShiftModal from "@/src/components/ShiftModal";
 import EmployeeModal from "@/src/components/EmployeeModal";
 import VehicleDashboard from "@/src/components/vehicles/VehicleDashboard";
-
-const INITIAL_EMPLOYEES: Employee[] = [
-  { id: "1", name: "Bahri", title: "CNC Torna Operatörü", annualLeaveAllowance: 14 },
-  { id: "2", name: "Batın", title: "CNC Freze Operatörü", annualLeaveAllowance: 14 },
-  { id: "3", name: "Kerim", title: "Talaşlı İmalat Ustası", annualLeaveAllowance: 14 },
-  { id: "4", name: "Furkan", title: "Üretim Personeli", annualLeaveAllowance: 14 },
-];
+import PerformanceReports from "@/src/components/reports/PerformanceReports";
 
 export default function Dashboard() {
-  const [shifts, setShifts] = useState<ShiftRecord[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [isModalOpen, setModalOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<ShiftRecord | null>(null);
 
-  // Personel Yönetimi State'leri
-  const [employees, setEmployees] = useState<Employee[]>(INITIAL_EMPLOYEES);
+  // Kullanıcıya gösterilecek işlem hatası (kayıt / silme başarısız olduğunda)
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // Personel Yönetimi (veri katmanı useEmployees hook'unda)
+  const {
+    employees,
+    error: employeesError,
+    saveEmployee,
+    removeEmployee,
+  } = useEmployees();
   const [isEmployeeModalOpen, setEmployeeModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
 
@@ -65,92 +58,17 @@ export default function Dashboard() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   });
 
-  // Aktif Modül (Personel Vardiya / Araç Takip Filo) ve Araç Görünüm Modu (Kart / Tablo)
-  const [activeModule, setActiveModule] = useState<"vardiya" | "araclar">("vardiya");
+  // Aktif Modül (Personel Vardiya / Araç Takip Filo / Performans Raporları) ve Araç Görünüm Modu (Kart / Tablo)
+  const [activeModule, setActiveModule] = useState<"vardiya" | "araclar" | "raporlar">("vardiya");
   const [vehicleViewMode, setVehicleViewMode] = useState<"card" | "table">("card");
 
-  // Firebase'den Personelleri Çekme
-  const fetchEmployees = async () => {
-    try {
-      const snapshot = await getDocs(collection(db, "employees"));
-      if (!snapshot.empty) {
-        const loaded: Employee[] = [];
-        snapshot.forEach((d) => {
-          const data = d.data();
-          loaded.push({
-            id: d.id,
-            name: data.name,
-            title: data.title || "Üretim Personeli",
-            phone: data.phone || "",
-            startDate: data.startDate || "",
-            annualLeaveAllowance: data.annualLeaveAllowance ?? 14,
-          });
-        });
-        setEmployees(loaded);
-      } else {
-        // İlk kurulumda varsayılan personelleri Firestore'a yükle
-        for (const emp of INITIAL_EMPLOYEES) {
-          await setDoc(doc(db, "employees", emp.id), emp);
-        }
-      }
-    } catch (error) {
-      console.error("Personel çekme hatası:", error);
-    }
-  };
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchEmployees();
-  }, []);
-
-  // Firebase'den Vardiya Verilerini Çekme (Seçili kişiye ve aya göre filtrelenmiş)
-  const fetchShifts = async () => {
-    setLoading(true);
-    try {
-      const q = query(
-        collection(db, "shifts"),
-        where("employeeName", "==", selectedEmployee),
-        where("monthId", "==", selectedMonth),
-      );
-      const querySnapshot = await getDocs(q);
-      const loadedShifts: ShiftRecord[] = [];
-
-      querySnapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        loadedShifts.push({
-          id: docSnap.id,
-          employeeName: data.employeeName,
-          monthId: data.monthId,
-          date: data.date,
-          status: data.status,
-          checkIn: data.checkIn,
-          checkOut: data.checkOut,
-          lunchBreakMinutes: data.lunchBreakMinutes,
-          reason: data.reason || "",
-          note: data.note || "",
-        });
-      });
-
-      // Tarihe göre sırala (gün sayısına göre)
-      loadedShifts.sort((a, b) => {
-        const dayA = parseInt(a.date.split(".")[0]);
-        const dayB = parseInt(b.date.split(".")[0]);
-        return dayA - dayB;
-      });
-
-      setShifts(loadedShifts);
-    } catch (error) {
-      console.error("Veri çekme hatası:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchShifts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedEmployee, selectedMonth]);
+  // Vardiya verisi (seçili kişiye ve aya göre; veri katmanı useShifts hook'unda)
+  const {
+    shifts,
+    loading,
+    error: shiftsError,
+    reload: reloadShifts,
+  } = useShifts(selectedEmployee, selectedMonth);
 
   const calculatedShifts: ShiftCalculated[] = useMemo(() => {
     return shifts.map(processShift);
@@ -183,69 +101,57 @@ export default function Dashboard() {
 
   const handleSaveShift = async (savedShift: ShiftRecord) => {
     try {
-      const [, month, year] = savedShift.date.split(".");
-      const derivedMonthId = `${year}-${month}`;
-      const shiftDataToSave = {
-        employeeName: selectedEmployee,
-        monthId: derivedMonthId,
-        date: savedShift.date,
-        status: savedShift.status,
-        checkIn: savedShift.checkIn,
-        checkOut: savedShift.checkOut,
-        lunchBreakMinutes: savedShift.lunchBreakMinutes,
-        reason: savedShift.reason || "",
-        note: savedShift.note || "",
-      };
-
-      if (editingShift && editingShift.id) {
-        const docRef = doc(db, "shifts", editingShift.id);
-        await updateDoc(docRef, shiftDataToSave);
-      } else {
-        await addDoc(collection(db, "shifts"), shiftDataToSave);
-      }
+      const derivedMonthId = await saveShift(
+        selectedEmployee,
+        savedShift,
+        editingShift?.id,
+      );
 
       if (derivedMonthId !== selectedMonth) {
         setSelectedMonth(derivedMonthId);
       } else {
-        fetchShifts();
+        reloadShifts();
       }
     } catch (error) {
       console.error("Kayıt hatası:", error);
+      setActionError("Vardiya kaydedilemedi. Lütfen tekrar deneyin.");
     }
   };
 
   const handleDeleteShift = async (id: string) => {
     try {
-      await deleteDoc(doc(db, "shifts", id));
-      fetchShifts();
+      await deleteShift(id);
+      reloadShifts();
     } catch (error) {
       console.error("Silme hatası:", error);
+      setActionError("Vardiya silinemedi. Lütfen tekrar deneyin.");
     }
   };
 
   const handleSaveEmployee = async (emp: Employee) => {
     try {
-      const docRef = doc(db, "employees", emp.id);
-      await setDoc(docRef, emp, { merge: true });
-      fetchEmployees();
+      await saveEmployee(emp);
       setSelectedEmployee(emp.name);
     } catch (error) {
       console.error("Personel kaydedilemedi:", error);
+      setActionError("Personel kaydedilemedi. Lütfen tekrar deneyin.");
     }
   };
 
   const handleDeleteEmployee = async (id: string) => {
     try {
-      await deleteDoc(doc(db, "employees", id));
+      await removeEmployee(id);
       const remaining = employees.filter((e) => e.id !== id);
-      setEmployees(remaining);
       if (remaining.length > 0) {
         setSelectedEmployee(remaining[0].name);
       }
     } catch (error) {
       console.error("Personel silinemedi:", error);
+      setActionError("Personel silinemedi. Lütfen tekrar deneyin.");
     }
   };
+
+  const bannerError = actionError || shiftsError || employeesError;
 
   const openAddModal = () => {
     setEditingShift(null);
@@ -394,8 +300,44 @@ export default function Dashboard() {
               </button>
             </div>
           )}
+
+          <button
+            onClick={async () => {
+              try {
+                await logout();
+              } catch (error) {
+                console.error("Çıkış hatası:", error);
+              }
+            }}
+            className="p-2.5 text-slate-300 hover:text-white hover:bg-slate-800 rounded-xl transition cursor-pointer shrink-0"
+            title="Çıkış Yap"
+            aria-label="Çıkış Yap"
+          >
+            <LogOut size={18} />
+          </button>
         </div>
       </header>
+
+      {/* Hata Bildirimi */}
+      {bannerError && (
+        <div
+          role="alert"
+          className="max-w-3xl mx-auto mt-3 px-4"
+        >
+          <div className="flex items-start justify-between gap-3 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs sm:text-sm">
+            <span>{bannerError}</span>
+            {actionError && (
+              <button
+                onClick={() => setActionError(null)}
+                className="font-bold text-rose-700 hover:text-rose-900 px-2 -my-1 min-h-[32px] cursor-pointer"
+                aria-label="Kapat"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modüle Göre Ana İçerik */}
       {activeModule === "araclar" ? (
@@ -403,6 +345,14 @@ export default function Dashboard() {
           <VehicleDashboard
             viewMode={vehicleViewMode}
             onViewModeChange={setVehicleViewMode}
+          />
+        </main>
+      ) : activeModule === "raporlar" ? (
+        <main className="max-w-7xl mx-auto px-3 sm:px-6 py-6">
+          <PerformanceReports 
+            employees={employees} 
+            selectedMonth={selectedMonth}
+            setSelectedMonth={setSelectedMonth} 
           />
         </main>
       ) : (

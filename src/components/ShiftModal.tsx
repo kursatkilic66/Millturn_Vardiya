@@ -12,12 +12,36 @@ interface ShiftModalProps {
 }
 
 const statuses = [
-  { name: "Çalıştı", desc: "Normal Mesai", color: "text-emerald-700 bg-emerald-50 border-emerald-200" },
-  { name: "Gelmedi", desc: "-10 Saat Kesinti", color: "text-rose-700 bg-rose-50 border-rose-200" },
-  { name: "Hafta Tatili", desc: "0 Saat (Hafta Sonu)", color: "text-purple-700 bg-purple-50 border-purple-200" },
-  { name: "Yıllık İzin", desc: "Ücretli İzin", color: "text-sky-700 bg-sky-50 border-sky-200" },
-  { name: "Raporlu", desc: "Sağlık Raporu", color: "text-amber-700 bg-amber-50 border-amber-200" },
-  { name: "Resmi Tatil", desc: "Resmi Tatil Çalışması", color: "text-indigo-700 bg-indigo-50 border-indigo-200" },
+  {
+    name: "Çalıştı",
+    desc: "Normal Mesai",
+    color: "text-emerald-700 bg-emerald-50 border-emerald-200",
+  },
+  {
+    name: "Gelmedi",
+    desc: "-10 Saat Kesinti",
+    color: "text-rose-700 bg-rose-50 border-rose-200",
+  },
+  {
+    name: "Hafta Tatili",
+    desc: "0 Saat (Hafta Sonu)",
+    color: "text-purple-700 bg-purple-50 border-purple-200",
+  },
+  {
+    name: "Yıllık İzin",
+    desc: "Ücretli İzin",
+    color: "text-sky-700 bg-sky-50 border-sky-200",
+  },
+  {
+    name: "Raporlu",
+    desc: "Sağlık Raporu",
+    color: "text-amber-700 bg-amber-50 border-amber-200",
+  },
+  {
+    name: "Resmi Tatil",
+    desc: "Resmi Tatil Çalışması",
+    color: "text-indigo-700 bg-indigo-50 border-indigo-200",
+  },
 ];
 
 export default function ShiftModal({
@@ -112,13 +136,30 @@ export default function ShiftModal({
   // Hazır rapor/izin gerekçeleri
   const getQuickReasons = () => {
     if (formData.status === "Raporlu") {
-      return ["Grip / İstirahat", "İş Kazası", "Hastanede Tedavi", "Heyet Raporu", "Diş Tedavisi"];
+      return [
+        "Grip / İstirahat",
+        "İş Kazası",
+        "Hastanede Tedavi",
+        "Heyet Raporu",
+        "Diş Tedavisi",
+      ];
     }
     if (formData.status === "Yıllık İzin") {
-      return ["Yıllık Ücretli İzin", "Mazeret İzni", "Evlilik İzni", "Vefat İzni", "Ücretsiz İzin"];
+      return [
+        "Yıllık Ücretli İzin",
+        "Mazeret İzni",
+        "Evlilik İzni",
+        "Vefat İzni",
+        "Ücretsiz İzin",
+      ];
     }
     if (formData.status === "Gelmedi") {
-      return ["Habersiz Gelmedi", "Ulaşım Sorunu", "Ailevi Mazeret", "İdari İzinli"];
+      return [
+        "Habersiz Gelmedi",
+        "Ulaşım Sorunu",
+        "Ailevi Mazeret",
+        "İdari İzinli",
+      ];
     }
     return [];
   };
@@ -137,7 +178,10 @@ export default function ShiftModal({
             </h3>
             {employeeName && (
               <p className="text-xs text-slate-500 mt-0.5">
-                Personel: <span className="font-semibold text-slate-700">{employeeName}</span>
+                Personel:{" "}
+                <span className="font-semibold text-slate-700">
+                  {employeeName}
+                </span>
               </p>
             )}
           </div>
@@ -185,10 +229,17 @@ export default function ShiftModal({
                 setFormData({
                   ...formData,
                   status: newStatus,
-                  checkIn: shouldClearTimes ? "" : (formData.checkIn || "07:30"),
-                  checkOut: shouldClearTimes ? "" : (formData.checkOut || "17:30"),
+                  checkIn: shouldClearTimes ? "" : formData.checkIn || "07:30",
+                  checkOut: shouldClearTimes
+                    ? ""
+                    : formData.checkOut || "17:30",
                   // Durum değiştiğinde varsayılan uygun nedeni ayarla
-                  reason: newStatus === "Yıllık İzin" ? "Yıllık Ücretli İzin" : newStatus === "Raporlu" ? "Grip / İstirahat" : "",
+                  reason:
+                    newStatus === "Yıllık İzin"
+                      ? "Yıllık Ücretli İzin"
+                      : newStatus === "Raporlu"
+                        ? "Grip / İstirahat"
+                        : "",
                 });
               }}
               className="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent bg-white text-slate-900 transition font-medium"
@@ -208,8 +259,8 @@ export default function ShiftModal({
                 {formData.status === "Raporlu"
                   ? "Rapor Gerekçesi"
                   : formData.status === "Yıllık İzin"
-                  ? "İzin Türü"
-                  : "Devamsızlık Nedeni"}
+                    ? "İzin Türü"
+                    : "Devamsızlık Nedeni"}
               </label>
 
               {/* Hızlı Çipler */}
@@ -234,7 +285,9 @@ export default function ShiftModal({
               <input
                 type="text"
                 value={formData.reason || ""}
-                onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+                onChange={(e) =>
+                  setFormData({ ...formData, reason: e.target.value })
+                }
                 placeholder="Örn: 2 Günlük Heyet Raporu - Hastalık"
                 className="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs outline-none focus:ring-2 focus:ring-slate-400 bg-white text-slate-900"
               />
@@ -268,7 +321,14 @@ export default function ShiftModal({
                   onClick={() => applyPreset("07:30", "15:30")}
                   className="px-2.5 py-1 text-xs font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition cursor-pointer"
                 >
-                  07:30 - 15:30 (8 Sa)
+                  07:30 - 15:30
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPreset("07:30", "21:00")}
+                  className="px-2.5 py-1 text-xs font-medium rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition cursor-pointer"
+                >
+                  07:30 - 21:00 (+3.5 Mesai)
                 </button>
               </div>
             </div>
@@ -323,7 +383,9 @@ export default function ShiftModal({
             <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-500">
               <Lock size={14} className="shrink-0 text-slate-400" />
               <span>
-                Seçili durum (<strong className="text-slate-700">{formData.status}</strong>) için çalışma saati girilmez.
+                Seçili durum (
+                <strong className="text-slate-700">{formData.status}</strong>)
+                için çalışma saati girilmez.
               </span>
             </div>
           )}
@@ -336,7 +398,9 @@ export default function ShiftModal({
             <input
               type="text"
               value={formData.note || ""}
-              onChange={(e) => setFormData({ ...formData, note: e.target.value })}
+              onChange={(e) =>
+                setFormData({ ...formData, note: e.target.value })
+              }
               placeholder="Örn: Doktor raporu teslim alındı, gece mesaisi vb."
               className="w-full border border-slate-200 rounded-xl px-3.5 py-2 text-xs outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent bg-white text-slate-900"
             />
@@ -367,4 +431,3 @@ export default function ShiftModal({
     </div>
   );
 }
-

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { User, Lock, Eye, EyeOff, AlertCircle, ArrowRight, ShieldCheck } from "lucide-react";
+import { loginWithEmail, getAuthErrorMessage } from "@/src/lib/authService";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
@@ -12,37 +13,18 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
     setIsLoading(true);
+    setError("");
 
-    const aliasker =
-      username === process.env.NEXT_PUBLIC_USER1_USERNAME &&
-      password === process.env.NEXT_PUBLIC_USER1_PASSWORD;
-
-    const ramazan =
-      username === process.env.NEXT_PUBLIC_USER2_USERNAME &&
-      password === process.env.NEXT_PUBLIC_USER2_PASSWORD;
-
-    const admin =
-      username === process.env.NEXT_PUBLIC_ADMIN_USERNAME &&
-      password === process.env.NEXT_PUBLIC_ADMIN_PASSWORD;
-
-    if (aliasker || ramazan || admin) {
-      setError("");
-
-      const days = rememberMe ? 30 : 1;
-      const expirationDate = new Date();
-      expirationDate.setTime(
-        expirationDate.getTime() + days * 24 * 60 * 60 * 1000,
-      );
-
-      // Çerezi kaydet ve ana sayfaya yönlendir
-      document.cookie = `auth_token=aliasker_logged_in; expires=${expirationDate.toUTCString()}; path=/; SameSite=Strict`;
+    try {
+      await loginWithEmail(username, password, rememberMe);
       router.push("/");
-    } else {
+    } catch (err) {
+      setError(getAuthErrorMessage(err));
       setIsLoading(false);
-      setError("Kullanıcı adı veya şifre hatalı. Lütfen kontrol ediniz.");
     }
   };
 
@@ -85,17 +67,19 @@ export default function LoginPage() {
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-2">
-                Kullanıcı Adı
+                E-posta
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
                   <User size={18} />
                 </div>
                 <input
-                  type="text"
+                  type="email"
+                  inputMode="email"
+                  autoComplete="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Kullanıcı adınızı girin"
+                  placeholder="E-posta adresinizi girin"
                   className="w-full pl-10 pr-4 py-2.5 bg-slate-800/70 border border-slate-700/80 rounded-xl text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent transition"
                   required
                   autoFocus

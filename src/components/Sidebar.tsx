@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { X, LogOut, Users, Search, Check, Shield, UserPlus, Settings2, Car } from "lucide-react";
+import { X, LogOut, Users, Search, Check, Shield, UserPlus, Settings2, Car, PieChart } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Employee } from "../types";
 
@@ -12,8 +12,8 @@ interface SidebarProps {
   employees: Employee[];
   onOpenAddEmployee: () => void;
   onOpenEditEmployee: (emp: Employee) => void;
-  activeModule?: "vardiya" | "araclar";
-  onSelectModule?: (module: "vardiya" | "araclar") => void;
+  activeModule?: "vardiya" | "araclar" | "raporlar";
+  onSelectModule?: (module: "vardiya" | "araclar" | "raporlar") => void;
 }
 
 export default function Sidebar({
@@ -87,13 +87,13 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* Modül Değiştirici (Vardiya / Araç Takip) */}
-        <div className="p-3 bg-slate-50 border-b border-slate-200/80 flex items-center gap-2 shrink-0">
+        {/* Modül Değiştirici (Vardiya / Araç Takip / Raporlar) */}
+        <div className="p-3 bg-slate-50 border-b border-slate-200/80 flex items-center gap-1.5 shrink-0">
           <button
             onClick={() => {
               onSelectModule?.("vardiya");
             }}
-            className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+            className={`flex-1 py-2 px-1.5 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
               activeModule === "vardiya"
                 ? "bg-slate-900 text-white shadow-xs"
                 : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
@@ -106,14 +106,27 @@ export default function Sidebar({
             onClick={() => {
               onSelectModule?.("araclar");
             }}
-            className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+            className={`flex-1 py-2 px-1.5 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
               activeModule === "araclar"
                 ? "bg-blue-600 text-white shadow-xs"
                 : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
             }`}
           >
             <Car size={14} />
-            Araç Takip
+            Araçlar
+          </button>
+          <button
+            onClick={() => {
+              onSelectModule?.("raporlar");
+            }}
+            className={`flex-1 py-2 px-1.5 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 transition cursor-pointer ${
+              activeModule === "raporlar"
+                ? "bg-emerald-600 text-white shadow-xs"
+                : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+            }`}
+          >
+            <PieChart size={14} />
+            Raporlar
           </button>
         </div>
 
