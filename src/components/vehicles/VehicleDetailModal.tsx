@@ -37,12 +37,13 @@ import {
   SparePartRecord,
   K2Card,
 } from "@/src/types/vehicle";
+import { useToast } from "@/src/components/ToastProvider";
 
 interface VehicleDetailModalProps {
   vehicle: Vehicle | null;
   isOpen: boolean;
   onClose: () => void;
-  onUpdateVehicle: (updated: Vehicle) => void;
+  onUpdateVehicle: (updated: Vehicle) => Promise<void> | void;
   onEditVehicleDetails: (v: Vehicle) => void;
 }
 
@@ -61,6 +62,11 @@ type TabKey =
   | "k2"
   | "yedekparca";
 
+const todayStr = () => new Date().toISOString().split("T")[0];
+
+const parseNumInput = (val: string): number | undefined =>
+  val === "" ? undefined : Number(val);
+
 export default function VehicleDetailModal({
   vehicle,
   isOpen,
@@ -68,10 +74,13 @@ export default function VehicleDetailModal({
   onUpdateVehicle,
   onEditVehicleDetails,
 }: VehicleDetailModalProps) {
+  const { showSuccess, showError } = useToast();
   const [activeTab, setActiveTab] = useState<TabKey>("genel");
 
-  // Hızlı alt kayıt ekleme form görünürlüğü
+  // Hızlı alt kayıt ekleme form görünürlüğü ve kayıt durumu
   const [showAddSubRecord, setShowAddSubRecord] = useState<TabKey | null>(null);
+  const [subRecordError, setSubRecordError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // K2 Kartı düzenleme modu
   const [isEditingK2, setIsEditingK2] = useState(false);
@@ -96,12 +105,12 @@ export default function VehicleDetailModal({
     }
   }, [vehicle]);
 
-  // Form State'leri
+  // Form State'leri (para/sayı alanları başlangıçta boş/undefined gelir, başta 0 kalmaz)
   const [bakimForm, setBakimForm] = useState<Partial<MaintenanceRecord>>({
     islemTuru: "Periyodik Bakım",
-    tutar: 0,
-    km: vehicle?.guncelKm || 0,
-    islemTarihi: new Date().toISOString().split("T")[0],
+    tutar: undefined,
+    km: undefined,
+    islemTarihi: todayStr(),
   });
 
   const [lastikForm, setLastikForm] = useState<Partial<TireRecord>>({
@@ -112,39 +121,40 @@ export default function VehicleDetailModal({
   });
 
   const [cezaForm, setCezaForm] = useState<Partial<FineRecord>>({
-    cezaTutari: 0,
-    tarih: new Date().toISOString().split("T")[0],
+    cezaTutari: undefined,
+    tarih: todayStr(),
     aciklama: "Trafik Cezası",
     odendiMi: true,
   });
 
   const [arizaForm, setArizaForm] = useState<Partial<BreakdownRecord>>({
-    tarih: new Date().toISOString().split("T")[0],
+    tarih: todayStr(),
     calisiyor: true,
     cekiciCagirildi: false,
     durum: "Açık",
     aciklama: "Arıza Tespiti",
+    toplamMaliyet: undefined,
   });
 
   const [kazaForm, setKazaForm] = useState<Partial<DamageRecord>>({
-    kazaTarihi: new Date().toISOString().split("T")[0],
+    kazaTarihi: todayStr(),
     tip: "İki Araç",
-    toplamMaliyet: 0,
+    toplamMaliyet: undefined,
     aciklama: "Maddi Hasarlı Kaza",
     dosyaDurumu: "Açık",
   });
 
   const [vergiForm, setVergiForm] = useState<Partial<TaxRecord>>({
     tip: "MTV 1. Taksit",
-    tarih: new Date().toISOString().split("T")[0],
-    vergiTutari: 0,
+    tarih: todayStr(),
+    vergiTutari: undefined,
     odendiMi: true,
     aciklama: "MTV Ödemesi",
   });
 
   const [tahsisForm, setTahsisForm] = useState<Partial<AssignmentRecord>>({
-    tahsisBaslangicTarihi: new Date().toISOString().split("T")[0],
-    baslangicKm: vehicle?.guncelKm || 0,
+    tahsisBaslangicTarihi: todayStr(),
+    baslangicKm: undefined,
     aktifMi: true,
     zimmetlenenKisi: "",
     departman: "",
@@ -154,8 +164,9 @@ export default function VehicleDetailModal({
     tip: "Yedek Parça",
     aciklama: "Parça Değişimi",
     durum: "Tamamlandı",
-    faturaTutari: 0,
-    iscilikBedeli: 0,
+    faturaTutari: undefined,
+    iscilikBedeli: undefined,
+    aracKm: undefined,
   });
 
   if (!isOpen || !vehicle) return null;
@@ -197,22 +208,33 @@ export default function VehicleDetailModal({
   };
 
   // K2 Kartı kaydetme
-  const handleSaveK2 = () => {
-    const updated: Vehicle = {
-      ...vehicle,
-      k2Karti: {
-        belgeNumarasi: k2Form.belgeNumarasi?.trim() || "",
-        belgeTarihi: k2Form.belgeTarihi || "",
-        sonGecerlilikTarihi: k2Form.sonGecerlilikTarihi || "",
-        aciklama: k2Form.aciklama?.trim() || "",
-      },
-    };
-    onUpdateVehicle(updated);
-    setIsEditingK2(false);
+  const handleSaveK2 = async () => {
+    setSubRecordError(null);
+    setIsSaving(true);
+    try {
+      const updated: Vehicle = {
+        ...vehicle,
+        k2Karti: {
+          belgeNumarasi: k2Form.belgeNumarasi?.trim() || "",
+          belgeTarihi: k2Form.belgeTarihi || "",
+          sonGecerlilikTarihi: k2Form.sonGecerlilikTarihi || "",
+          aciklama: k2Form.aciklama?.trim() || "",
+        },
+      };
+      await onUpdateVehicle(updated);
+      setIsEditingK2(false);
+      showSuccess("K2 Taşıt Kartı başarıyla güncellendi.");
+    } catch {
+      setSubRecordError("K2 Taşıt Kartı kaydedilemedi. Lütfen tekrar deneyin.");
+      showError("K2 Taşıt Kartı kaydedilirken bir hata oluştu.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Alt kayıt silme işlemi
-  const handleDeleteSubRecord = (type: TabKey, recordId: string) => {
+  const handleDeleteSubRecord = async (type: TabKey, recordId: string) => {
+    setSubRecordError(null);
     const updated = { ...vehicle };
     if (type === "bakim") {
       updated.bakimlar = (updated.bakimlar || []).filter((r) => r.id !== recordId);
@@ -231,59 +253,71 @@ export default function VehicleDetailModal({
     } else if (type === "yedekparca") {
       updated.yedekParcalar = (updated.yedekParcalar || []).filter((r) => r.id !== recordId);
     }
-    onUpdateVehicle(updated);
+    try {
+      await onUpdateVehicle(updated);
+      showSuccess("Kayıt başarıyla silindi.");
+    } catch {
+      setSubRecordError("Kayıt silinemedi. Lütfen tekrar deneyin.");
+      showError("Kayıt silinirken bir hata oluştu.");
+    }
   };
 
   // Alt kayıt ekleme işlemleri
-  const handleSaveSubRecord = (type: TabKey) => {
+  const handleSaveSubRecord = async (type: TabKey) => {
+    setSubRecordError(null);
+    setIsSaving(true);
     const updated = { ...vehicle };
 
     if (type === "bakim") {
+      const islemKm = bakimForm.km !== undefined && bakimForm.km > 0 ? Number(bakimForm.km) : vehicle.guncelKm;
       const newRec: MaintenanceRecord = {
         id: "b_" + Date.now(),
-        islemTuru: bakimForm.islemTuru || "Periyodik Bakım",
-        islemTarihi: bakimForm.islemTarihi || new Date().toISOString().split("T")[0],
-        km: Number(bakimForm.km) || vehicle.guncelKm,
+        islemTuru: bakimForm.islemTuru?.trim() || "Periyodik Bakım",
+        islemTarihi: bakimForm.islemTarihi || todayStr(),
+        km: islemKm,
         sonrakiKm: bakimForm.sonrakiKm ? Number(bakimForm.sonrakiKm) : undefined,
-        sonrakiTarih: bakimForm.sonrakiTarih,
-        faturaNo: bakimForm.faturaNo,
+        sonrakiTarih: bakimForm.sonrakiTarih || undefined,
+        faturaNo: bakimForm.faturaNo?.trim() || undefined,
         tutar: Number(bakimForm.tutar) || 0,
-        aciklama: bakimForm.aciklama,
+        aciklama: bakimForm.aciklama?.trim() || undefined,
       };
+      if (islemKm > (updated.guncelKm || 0)) {
+        updated.guncelKm = islemKm;
+      }
       updated.bakimlar = [newRec, ...(updated.bakimlar || [])];
     } else if (type === "lastik") {
       const newRec: TireRecord = {
         id: "l_" + Date.now(),
-        aciklama: lastikForm.aciklama || "Lastik Kaydı",
-        konum: (lastikForm.konum as any) || "Ön Sol",
-        marka: lastikForm.marka || "Bilinmiyor",
-        tip: (lastikForm.tip as any) || "4 Mevsim",
+        aciklama: lastikForm.aciklama?.trim() || "Lastik Kaydı",
+        konum: lastikForm.konum || "Ön Sol",
+        marka: lastikForm.marka?.trim() || "Bilinmiyor",
+        tip: lastikForm.tip || "4 Mevsim",
         tabanBoyutu: lastikForm.tabanBoyutu ? Number(lastikForm.tabanBoyutu) : undefined,
         yanakGenisligi: lastikForm.yanakGenisligi ? Number(lastikForm.yanakGenisligi) : undefined,
         jantCapi: lastikForm.jantCapi ? Number(lastikForm.jantCapi) : undefined,
-        satinAlmaTarihi: lastikForm.satinAlmaTarihi,
-        sonrakiDegisimTarihi: lastikForm.sonrakiDegisimTarihi,
+        satinAlmaTarihi: lastikForm.satinAlmaTarihi || undefined,
+        sonrakiDegisimTarihi: lastikForm.sonrakiDegisimTarihi || undefined,
       };
       updated.lastikler = [newRec, ...(updated.lastikler || [])];
     } else if (type === "ceza") {
       const newRec: FineRecord = {
         id: "c_" + Date.now(),
-        aciklama: cezaForm.aciklama || "Ceza",
-        tarih: cezaForm.tarih || new Date().toISOString().split("T")[0],
-        belgeNo: cezaForm.belgeNo,
-        cezaMaddesi: cezaForm.cezaMaddesi,
+        aciklama: cezaForm.aciklama?.trim() || "Ceza",
+        tarih: cezaForm.tarih || todayStr(),
+        belgeNo: cezaForm.belgeNo?.trim() || undefined,
+        cezaMaddesi: cezaForm.cezaMaddesi?.trim() || undefined,
         cezaTutari: Number(cezaForm.cezaTutari) || 0,
         cezaPuani: cezaForm.cezaPuani ? Number(cezaForm.cezaPuani) : undefined,
-        sofor: cezaForm.sofor,
-        rucu: cezaForm.rucu,
+        sofor: cezaForm.sofor?.trim() || undefined,
+        rucu: cezaForm.rucu?.trim() || undefined,
         odendiMi: cezaForm.odendiMi ?? true,
       };
       updated.cezalar = [newRec, ...(updated.cezalar || [])];
     } else if (type === "ariza") {
       const newRec: BreakdownRecord = {
         id: "a_" + Date.now(),
-        aciklama: arizaForm.aciklama || "Arıza",
-        tarih: arizaForm.tarih || new Date().toISOString().split("T")[0],
+        aciklama: arizaForm.aciklama?.trim() || "Arıza",
+        tarih: arizaForm.tarih || todayStr(),
         calisiyor: arizaForm.calisiyor ?? true,
         cekiciCagirildi: arizaForm.cekiciCagirildi ?? false,
         durum: arizaForm.durum || "Açık",
@@ -293,13 +327,13 @@ export default function VehicleDetailModal({
     } else if (type === "kaza") {
       const newRec: DamageRecord = {
         id: "k_" + Date.now(),
-        aciklama: kazaForm.aciklama || "Kaza",
-        kazaTarihi: kazaForm.kazaTarihi || new Date().toISOString().split("T")[0],
+        aciklama: kazaForm.aciklama?.trim() || "Kaza",
+        kazaTarihi: kazaForm.kazaTarihi || todayStr(),
         tip: kazaForm.tip || "Tek Araç",
-        belgeNo: kazaForm.belgeNo,
-        karsiAracPlakasi: kazaForm.karsiAracPlakasi,
-        karsiAracSurucusu: kazaForm.karsiAracSurucusu,
-        kusurOrani: kazaForm.asliKusur,
+        belgeNo: kazaForm.belgeNo?.trim() || undefined,
+        karsiAracPlakasi: kazaForm.karsiAracPlakasi?.trim() || undefined,
+        karsiAracSurucusu: kazaForm.karsiAracSurucusu?.trim() || undefined,
+        kusurOrani: kazaForm.kusurOrani || kazaForm.asliKusur || undefined,
         toplamMaliyet: Number(kazaForm.toplamMaliyet) || 0,
         dosyaDurumu: kazaForm.dosyaDurumu || "Açık",
       };
@@ -308,46 +342,96 @@ export default function VehicleDetailModal({
       const newRec: TaxRecord = {
         id: "t_" + Date.now(),
         tip: vergiForm.tip || "MTV 1. Taksit",
-        aciklama: vergiForm.aciklama || "MTV",
-        tarih: vergiForm.tarih || new Date().toISOString().split("T")[0],
-        gelecekVergiTarihi: vergiForm.gelecekVergiTarihi,
+        aciklama: vergiForm.aciklama?.trim() || "MTV",
+        tarih: vergiForm.tarih || todayStr(),
+        gelecekVergiTarihi: vergiForm.gelecekVergiTarihi || undefined,
         vergiTutari: Number(vergiForm.vergiTutari) || 0,
         odendiMi: vergiForm.odendiMi ?? true,
       };
       updated.vergiler = [newRec, ...(updated.vergiler || [])];
     } else if (type === "tahsis") {
+      const teslimKm =
+        tahsisForm.baslangicKm !== undefined && tahsisForm.baslangicKm > 0
+          ? Number(tahsisForm.baslangicKm)
+          : vehicle.guncelKm;
+      const bitisKmVal = tahsisForm.bitisKm ? Number(tahsisForm.bitisKm) : undefined;
       const newRec: AssignmentRecord = {
         id: "th_" + Date.now(),
-        zimmetlenenKisi: tahsisForm.zimmetlenenKisi || "Personel",
-        sofor: tahsisForm.sofor,
-        departman: tahsisForm.departman,
-        tahsisBaslangicTarihi: tahsisForm.tahsisBaslangicTarihi || new Date().toISOString().split("T")[0],
-        tahsisBitisTarihi: tahsisForm.tahsisBitisTarihi,
-        baslangicKm: Number(tahsisForm.baslangicKm) || vehicle.guncelKm,
-        bitisKm: tahsisForm.bitisKm ? Number(tahsisForm.bitisKm) : undefined,
-        aciklama: tahsisForm.aciklama,
+        zimmetlenenKisi: tahsisForm.zimmetlenenKisi?.trim() || "Personel",
+        sofor: tahsisForm.sofor?.trim() || undefined,
+        departman: tahsisForm.departman?.trim() || undefined,
+        tahsisBaslangicTarihi: tahsisForm.tahsisBaslangicTarihi || todayStr(),
+        tahsisBitisTarihi: tahsisForm.tahsisBitisTarihi || undefined,
+        baslangicKm: teslimKm,
+        bitisKm: bitisKmVal,
+        aciklama: tahsisForm.aciklama?.trim() || undefined,
         aktifMi: tahsisForm.aktifMi ?? true,
       };
+      const maxTahsisKm = Math.max(teslimKm || 0, bitisKmVal || 0);
+      if (maxTahsisKm > (updated.guncelKm || 0)) {
+        updated.guncelKm = maxTahsisKm;
+      }
       updated.tahsisler = [newRec, ...(updated.tahsisler || [])];
     } else if (type === "yedekparca") {
+      const parcaKm =
+        yedekParcaForm.aracKm !== undefined && yedekParcaForm.aracKm > 0
+          ? Number(yedekParcaForm.aracKm)
+          : vehicle.guncelKm;
       const newRec: SparePartRecord = {
         id: "y_" + Date.now(),
         tip: yedekParcaForm.tip || "Yedek Parça",
-        aciklama: yedekParcaForm.aciklama || "Parça",
-        tespit: yedekParcaForm.tespit,
-        islem: yedekParcaForm.islem,
-        kullanilanYedekParcalar: yedekParcaForm.kullanilanYedekParcalar,
+        aciklama: yedekParcaForm.aciklama?.trim() || "Parça",
+        tespit: yedekParcaForm.tespit?.trim() || undefined,
+        islem: yedekParcaForm.islem?.trim() || undefined,
+        kullanilanYedekParcalar: yedekParcaForm.kullanilanYedekParcalar?.trim() || undefined,
         durum: yedekParcaForm.durum || "Tamamlandı",
-        faturaNo: yedekParcaForm.faturaNo,
+        faturaNo: yedekParcaForm.faturaNo?.trim() || undefined,
         faturaTutari: Number(yedekParcaForm.faturaTutari) || 0,
         iscilikBedeli: Number(yedekParcaForm.iscilikBedeli) || 0,
-        aracKm: Number(yedekParcaForm.aracKm) || vehicle.guncelKm,
+        aracKm: parcaKm,
       };
+      if (parcaKm > (updated.guncelKm || 0)) {
+        updated.guncelKm = parcaKm;
+      }
       updated.yedekParcalar = [newRec, ...(updated.yedekParcalar || [])];
     }
 
-    onUpdateVehicle(updated);
-    setShowAddSubRecord(null);
+    try {
+      await onUpdateVehicle(updated);
+      // Başarılı kayıttan sonra ilgili formu sıfırla ve kapat
+      if (type === "bakim") {
+        setBakimForm({ islemTuru: "Periyodik Bakım", tutar: undefined, km: undefined, islemTarihi: todayStr() });
+      } else if (type === "ceza") {
+        setCezaForm({ cezaTutari: undefined, tarih: todayStr(), aciklama: "Trafik Cezası", odendiMi: true });
+      } else if (type === "ariza") {
+        setArizaForm({ tarih: todayStr(), calisiyor: true, cekiciCagirildi: false, durum: "Açık", aciklama: "Arıza Tespiti", toplamMaliyet: undefined });
+      } else if (type === "kaza") {
+        setKazaForm({ kazaTarihi: todayStr(), tip: "İki Araç", toplamMaliyet: undefined, aciklama: "Maddi Hasarlı Kaza", dosyaDurumu: "Açık" });
+      } else if (type === "vergi") {
+        setVergiForm({ tip: "MTV 1. Taksit", tarih: todayStr(), vergiTutari: undefined, odendiMi: true, aciklama: "MTV Ödemesi" });
+      } else if (type === "tahsis") {
+        setTahsisForm({ tahsisBaslangicTarihi: todayStr(), baslangicKm: undefined, aktifMi: true, zimmetlenenKisi: "", departman: "" });
+      } else if (type === "yedekparca") {
+        setYedekParcaForm({ tip: "Yedek Parça", aciklama: "Parça Değişimi", durum: "Tamamlandı", faturaTutari: undefined, iscilikBedeli: undefined, aracKm: undefined });
+      }
+      setShowAddSubRecord(null);
+      const labelMap: Record<string, string> = {
+        bakim: "Bakım kaydı başarıyla eklendi.",
+        lastik: "Lastik kaydı başarıyla eklendi.",
+        ceza: "Trafik cezası başarıyla eklendi.",
+        ariza: "Arıza bildirimi başarıyla eklendi.",
+        kaza: "Kaza ve hasar kaydı başarıyla eklendi.",
+        vergi: "MTV vergi kaydı başarıyla eklendi.",
+        tahsis: "Araç zimmet/tahsis kaydı başarıyla eklendi.",
+        yedekparca: "Yedek parça kaydı başarıyla eklendi.",
+      };
+      showSuccess(labelMap[type] || "İşlem başarıyla gerçekleştirildi.");
+    } catch {
+      setSubRecordError("Kayıt eklenemedi. Lütfen bağlantınızı ve oturumunuzu kontrol edip tekrar deneyin.");
+      showError("İşlem sırasında bir hata oluştu.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const tabs: { key: TabKey; label: string; icon: React.ReactNode; badge?: number }[] = [
@@ -451,6 +535,7 @@ export default function VehicleDetailModal({
                 onClick={() => {
                   setActiveTab(tab.key);
                   setShowAddSubRecord(null);
+                  setSubRecordError(null);
                 }}
                 className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition cursor-pointer ${
                   isActive
@@ -476,6 +561,21 @@ export default function VehicleDetailModal({
 
         {/* Sekme İçerik Alanı */}
         <div className="p-5 sm:p-6 overflow-y-auto flex-1 bg-slate-50/50">
+          {subRecordError && (
+            <div
+              role="alert"
+              className="mb-4 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-800 text-xs flex items-center justify-between gap-2"
+            >
+              <span>{subRecordError}</span>
+              <button
+                type="button"
+                onClick={() => setSubRecordError(null)}
+                className="font-bold text-rose-700 hover:text-rose-900 px-1.5 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {/* 1. ÖZELLİKLER & GENEL */}
           {activeTab === "genel" && (
@@ -852,8 +952,10 @@ export default function VehicleDetailModal({
                       <label className="text-slate-600 block mb-1">İşlem Kilometresi (KM)</label>
                       <input
                         type="number"
-                        value={bakimForm.km}
-                        onChange={(e) => setBakimForm({ ...bakimForm, km: Number(e.target.value) })}
+                        min="0"
+                        value={bakimForm.km ?? ""}
+                        onChange={(e) => setBakimForm({ ...bakimForm, km: parseNumInput(e.target.value) })}
+                        placeholder={String(vehicle.guncelKm || 0)}
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -861,8 +963,9 @@ export default function VehicleDetailModal({
                       <label className="text-slate-600 block mb-1">Sonraki Bakım KM</label>
                       <input
                         type="number"
-                        value={bakimForm.sonrakiKm || ""}
-                        onChange={(e) => setBakimForm({ ...bakimForm, sonrakiKm: Number(e.target.value) })}
+                        min="0"
+                        value={bakimForm.sonrakiKm ?? ""}
+                        onChange={(e) => setBakimForm({ ...bakimForm, sonrakiKm: parseNumInput(e.target.value) })}
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
                         placeholder="Örn: 55000"
                       />
@@ -871,8 +974,11 @@ export default function VehicleDetailModal({
                       <label className="text-slate-600 block mb-1">Fatura Tutarı (₺)</label>
                       <input
                         type="number"
-                        value={bakimForm.tutar}
-                        onChange={(e) => setBakimForm({ ...bakimForm, tutar: Number(e.target.value) })}
+                        min="0"
+                        step="any"
+                        value={bakimForm.tutar ?? ""}
+                        onChange={(e) => setBakimForm({ ...bakimForm, tutar: parseNumInput(e.target.value) })}
+                        placeholder="0"
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -905,10 +1011,11 @@ export default function VehicleDetailModal({
                       Vazgeç
                     </button>
                     <button
+                      disabled={isSaving}
                       onClick={() => handleSaveSubRecord("bakim")}
-                      className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg cursor-pointer"
+                      className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-semibold rounded-lg cursor-pointer"
                     >
-                      Kaydet
+                      {isSaving ? "Kaydediliyor..." : "Kaydet"}
                     </button>
                   </div>
                 </div>
@@ -1084,10 +1191,11 @@ export default function VehicleDetailModal({
                         Vazgeç
                       </button>
                       <button
+                        disabled={isSaving}
                         onClick={() => handleSaveSubRecord("lastik")}
-                        className="px-3 py-1.5 text-xs bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg cursor-pointer"
+                        className="px-3 py-1.5 text-xs bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-semibold rounded-lg cursor-pointer"
                       >
-                        Kaydet
+                        {isSaving ? "Kaydediliyor..." : "Kaydet"}
                       </button>
                     </div>
                   </div>
@@ -1191,8 +1299,11 @@ export default function VehicleDetailModal({
                       <label className="text-slate-600 block mb-1">Ceza Tutarı (₺)</label>
                       <input
                         type="number"
-                        value={cezaForm.cezaTutari}
-                        onChange={(e) => setCezaForm({ ...cezaForm, cezaTutari: Number(e.target.value) })}
+                        min="0"
+                        step="any"
+                        value={cezaForm.cezaTutari ?? ""}
+                        onChange={(e) => setCezaForm({ ...cezaForm, cezaTutari: parseNumInput(e.target.value) })}
+                        placeholder="0"
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -1210,8 +1321,9 @@ export default function VehicleDetailModal({
                       <label className="text-slate-600 block mb-1">Ceza Puanı</label>
                       <input
                         type="number"
-                        value={cezaForm.cezaPuani || ""}
-                        onChange={(e) => setCezaForm({ ...cezaForm, cezaPuani: Number(e.target.value) })}
+                        min="0"
+                        value={cezaForm.cezaPuani ?? ""}
+                        onChange={(e) => setCezaForm({ ...cezaForm, cezaPuani: parseNumInput(e.target.value) })}
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
                         placeholder="10"
                       />
@@ -1235,10 +1347,11 @@ export default function VehicleDetailModal({
                       Vazgeç
                     </button>
                     <button
+                      disabled={isSaving}
                       onClick={() => handleSaveSubRecord("ceza")}
-                      className="px-3 py-1.5 text-xs bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg cursor-pointer"
+                      className="px-3 py-1.5 text-xs bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-semibold rounded-lg cursor-pointer"
                     >
-                      Kaydet
+                      {isSaving ? "Kaydediliyor..." : "Kaydet"}
                     </button>
                   </div>
                 </div>
@@ -1371,8 +1484,11 @@ export default function VehicleDetailModal({
                       <label className="text-slate-600 block mb-1">Tahmini / Toplam Maliyet (₺)</label>
                       <input
                         type="number"
-                        value={arizaForm.toplamMaliyet || 0}
-                        onChange={(e) => setArizaForm({ ...arizaForm, toplamMaliyet: Number(e.target.value) })}
+                        min="0"
+                        step="any"
+                        value={arizaForm.toplamMaliyet ?? ""}
+                        onChange={(e) => setArizaForm({ ...arizaForm, toplamMaliyet: parseNumInput(e.target.value) })}
+                        placeholder="0"
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -1385,10 +1501,11 @@ export default function VehicleDetailModal({
                       Vazgeç
                     </button>
                     <button
+                      disabled={isSaving}
                       onClick={() => handleSaveSubRecord("ariza")}
-                      className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg cursor-pointer"
+                      className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white font-semibold rounded-lg cursor-pointer"
                     >
-                      Kaydet
+                      {isSaving ? "Kaydediliyor..." : "Kaydet"}
                     </button>
                   </div>
                 </div>
@@ -1519,8 +1636,11 @@ export default function VehicleDetailModal({
                       <label className="text-slate-600 block mb-1">Toplam Hasar Tutarı (₺)</label>
                       <input
                         type="number"
-                        value={kazaForm.toplamMaliyet || 0}
-                        onChange={(e) => setKazaForm({ ...kazaForm, toplamMaliyet: Number(e.target.value) })}
+                        min="0"
+                        step="any"
+                        value={kazaForm.toplamMaliyet ?? ""}
+                        onChange={(e) => setKazaForm({ ...kazaForm, toplamMaliyet: parseNumInput(e.target.value) })}
+                        placeholder="0"
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -1533,10 +1653,11 @@ export default function VehicleDetailModal({
                       Vazgeç
                     </button>
                     <button
+                      disabled={isSaving}
                       onClick={() => handleSaveSubRecord("kaza")}
-                      className="px-3 py-1.5 text-xs bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-lg cursor-pointer"
+                      className="px-3 py-1.5 text-xs bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-semibold rounded-lg cursor-pointer"
                     >
-                      Kaydet
+                      {isSaving ? "Kaydediliyor..." : "Kaydet"}
                     </button>
                   </div>
                 </div>
@@ -1640,8 +1761,11 @@ export default function VehicleDetailModal({
                       <label className="text-slate-600 block mb-1">Vergi Tutarı (₺)</label>
                       <input
                         type="number"
-                        value={vergiForm.vergiTutari}
-                        onChange={(e) => setVergiForm({ ...vergiForm, vergiTutari: Number(e.target.value) })}
+                        min="0"
+                        step="any"
+                        value={vergiForm.vergiTutari ?? ""}
+                        onChange={(e) => setVergiForm({ ...vergiForm, vergiTutari: parseNumInput(e.target.value) })}
+                        placeholder="0"
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -1663,10 +1787,11 @@ export default function VehicleDetailModal({
                       Vazgeç
                     </button>
                     <button
+                      disabled={isSaving}
                       onClick={() => handleSaveSubRecord("vergi")}
-                      className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg cursor-pointer"
+                      className="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-semibold rounded-lg cursor-pointer"
                     >
-                      Kaydet
+                      {isSaving ? "Kaydediliyor..." : "Kaydet"}
                     </button>
                   </div>
                 </div>
@@ -1768,8 +1893,10 @@ export default function VehicleDetailModal({
                       <label className="text-slate-600 block mb-1">Teslim KM</label>
                       <input
                         type="number"
-                        value={tahsisForm.baslangicKm}
-                        onChange={(e) => setTahsisForm({ ...tahsisForm, baslangicKm: Number(e.target.value) })}
+                        min="0"
+                        value={tahsisForm.baslangicKm ?? ""}
+                        onChange={(e) => setTahsisForm({ ...tahsisForm, baslangicKm: parseNumInput(e.target.value) })}
+                        placeholder={String(vehicle.guncelKm || 0)}
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -1792,10 +1919,11 @@ export default function VehicleDetailModal({
                       Vazgeç
                     </button>
                     <button
+                      disabled={isSaving}
                       onClick={() => handleSaveSubRecord("tahsis")}
-                      className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg cursor-pointer"
+                      className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-semibold rounded-lg cursor-pointer"
                     >
-                      Kaydet
+                      {isSaving ? "Kaydediliyor..." : "Kaydet"}
                     </button>
                   </div>
                 </div>
@@ -2043,8 +2171,11 @@ export default function VehicleDetailModal({
                       <label className="text-slate-600 block mb-1">Parça Bedeli (₺)</label>
                       <input
                         type="number"
-                        value={yedekParcaForm.faturaTutari || 0}
-                        onChange={(e) => setYedekParcaForm({ ...yedekParcaForm, faturaTutari: Number(e.target.value) })}
+                        min="0"
+                        step="any"
+                        value={yedekParcaForm.faturaTutari ?? ""}
+                        onChange={(e) => setYedekParcaForm({ ...yedekParcaForm, faturaTutari: parseNumInput(e.target.value) })}
+                        placeholder="0"
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -2052,8 +2183,11 @@ export default function VehicleDetailModal({
                       <label className="text-slate-600 block mb-1">İşçilik Bedeli (₺)</label>
                       <input
                         type="number"
-                        value={yedekParcaForm.iscilikBedeli || 0}
-                        onChange={(e) => setYedekParcaForm({ ...yedekParcaForm, iscilikBedeli: Number(e.target.value) })}
+                        min="0"
+                        step="any"
+                        value={yedekParcaForm.iscilikBedeli ?? ""}
+                        onChange={(e) => setYedekParcaForm({ ...yedekParcaForm, iscilikBedeli: parseNumInput(e.target.value) })}
+                        placeholder="0"
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
                       />
                     </div>
@@ -2066,10 +2200,11 @@ export default function VehicleDetailModal({
                       Vazgeç
                     </button>
                     <button
+                      disabled={isSaving}
                       onClick={() => handleSaveSubRecord("yedekparca")}
-                      className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-lg cursor-pointer"
+                      className="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-900 disabled:opacity-60 text-white font-semibold rounded-lg cursor-pointer"
                     >
-                      Kaydet
+                      {isSaving ? "Kaydediliyor..." : "Kaydet"}
                     </button>
                   </div>
                 </div>

@@ -30,6 +30,7 @@ import {
 } from "@/src/lib/vehicleService";
 import VehicleDetailModal from "./VehicleDetailModal";
 import VehicleFormModal from "./VehicleFormModal";
+import { useToast } from "@/src/components/ToastProvider";
 
 interface VehicleDashboardProps {
   viewMode?: "card" | "table";
@@ -40,6 +41,7 @@ export default function VehicleDashboard({
   viewMode: propViewMode,
   onViewModeChange,
 }: VehicleDashboardProps) {
+  const { showSuccess, showError } = useToast();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [internalViewMode, setInternalViewMode] = useState<"card" | "table">("card");
@@ -139,15 +141,17 @@ export default function VehicleDashboard({
         if (selectedVehicleForDetail?.id === editingVehicle.id) {
           setSelectedVehicleForDetail((prev) => (prev ? ({ ...prev, ...vehicleData } as Vehicle) : null));
         }
+        showSuccess("Araç bilgileri başarıyla güncellendi.");
       } else {
         const newVehicle = await addVehicleToFirestore(vehicleData as Omit<Vehicle, "id">);
         setVehicles((prev) => [newVehicle, ...prev]);
+        showSuccess("Yeni araç başarıyla eklendi.");
       }
       setFormModalOpen(false);
       setEditingVehicle(null);
     } catch (error) {
       console.error("Araç kaydetme hatası:", error);
-      alert("Araç kaydedilirken bir hata oluştu.");
+      showError("Araç kaydedilirken bir hata oluştu.");
     }
   };
 
@@ -159,6 +163,7 @@ export default function VehicleDashboard({
       setSelectedVehicleForDetail(updated);
     } catch (error) {
       console.error("Araç güncelleme hatası:", error);
+      throw error;
     }
   };
 
@@ -171,9 +176,10 @@ export default function VehicleDashboard({
         if (selectedVehicleForDetail?.id === id) {
           setSelectedVehicleForDetail(null);
         }
+        showSuccess(`${plate} plakalı araç silindi.`);
       } catch (error) {
         console.error("Araç silme hatası:", error);
-        alert("Araç silinirken hata oluştu.");
+        showError("Araç silinirken bir hata oluştu.");
       }
     }
   };

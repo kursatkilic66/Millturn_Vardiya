@@ -10,6 +10,9 @@ interface VehicleFormModalProps {
   initialVehicle?: Vehicle | null;
 }
 
+const parseNumInput = (val: string): number | undefined =>
+  val === "" ? undefined : Number(val);
+
 export default function VehicleFormModal({
   isOpen,
   onClose,
@@ -29,7 +32,7 @@ export default function VehicleFormModal({
     rengi: "Beyaz",
     yakitTipi: "Dizel",
     vites: "Manuel",
-    guncelKm: 0,
+    guncelKm: undefined,
     durum: "Sahada",
     sahiplikDurumu: "Şirket Aracı",
     tanimliSofor: "",
@@ -120,7 +123,7 @@ export default function VehicleFormModal({
         rengi: "Beyaz",
         yakitTipi: "Dizel",
         vites: "Manuel",
-        guncelKm: 0,
+        guncelKm: undefined,
         durum: "Sahada",
         sahiplikDurumu: "Şirket Aracı",
         tanimliSofor: "",
@@ -154,7 +157,10 @@ export default function VehicleFormModal({
       alert("Lütfen marka adını giriniz!");
       return;
     }
-    onSave(formData);
+    onSave({
+      ...formData,
+      guncelKm: Number(formData.guncelKm) || 0,
+    });
   };
 
   return (
@@ -263,8 +269,9 @@ export default function VehicleFormModal({
                   <label className="text-slate-700 font-semibold block mb-1">Model Yılı</label>
                   <input
                     type="number"
-                    value={formData.modelYili || 2023}
-                    onChange={(e) => setFormData({ ...formData, modelYili: Number(e.target.value) })}
+                    value={formData.modelYili ?? ""}
+                    onChange={(e) => setFormData({ ...formData, modelYili: parseNumInput(e.target.value) })}
+                    placeholder="2023"
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl"
                   />
                 </div>
@@ -320,8 +327,10 @@ export default function VehicleFormModal({
                   <label className="text-slate-700 font-semibold block mb-1">Güncel Kilometre (KM)</label>
                   <input
                     type="number"
-                    value={formData.guncelKm || 0}
-                    onChange={(e) => setFormData({ ...formData, guncelKm: Number(e.target.value) })}
+                    min="0"
+                    value={formData.guncelKm ?? ""}
+                    onChange={(e) => setFormData({ ...formData, guncelKm: parseNumInput(e.target.value) })}
+                    placeholder="0"
                     className="w-full px-3 py-2 border border-slate-300 rounded-xl font-mono font-bold"
                   />
                 </div>
@@ -368,9 +377,11 @@ export default function VehicleFormModal({
                       <label className="text-slate-600 block mb-1">Aylık Kira Bedeli</label>
                       <input
                         type="number"
-                        value={formData.kiraMaliyeti || ""}
-                        onChange={(e) => setFormData({ ...formData, kiraMaliyeti: Number(e.target.value) })}
-                        placeholder="35000"
+                        min="0"
+                        step="any"
+                        value={formData.kiraMaliyeti ?? ""}
+                        onChange={(e) => setFormData({ ...formData, kiraMaliyeti: parseNumInput(e.target.value) })}
+                        placeholder="0"
                         className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white"
                       />
                     </div>
@@ -554,9 +565,11 @@ export default function VehicleFormModal({
                     <label className="text-slate-600 block mb-1">Poliçe Tutarı (₺)</label>
                     <input
                       type="number"
-                      value={formData.trafikTutar || ""}
-                      onChange={(e) => setFormData({ ...formData, trafikTutar: Number(e.target.value) })}
-                      placeholder="8500"
+                      min="0"
+                      step="any"
+                      value={formData.trafikTutar ?? ""}
+                      onChange={(e) => setFormData({ ...formData, trafikTutar: parseNumInput(e.target.value) })}
+                      placeholder="0"
                       className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white"
                     />
                   </div>
@@ -601,9 +614,11 @@ export default function VehicleFormModal({
                     <label className="text-slate-600 block mb-1">Kasko Tutarı (₺)</label>
                     <input
                       type="number"
-                      value={formData.kaskoTutari || ""}
-                      onChange={(e) => setFormData({ ...formData, kaskoTutari: Number(e.target.value) })}
-                      placeholder="21000"
+                      min="0"
+                      step="any"
+                      value={formData.kaskoTutari ?? ""}
+                      onChange={(e) => setFormData({ ...formData, kaskoTutari: parseNumInput(e.target.value) })}
+                      placeholder="0"
                       className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white"
                     />
                   </div>
@@ -656,9 +671,11 @@ export default function VehicleFormModal({
                 <label className="text-slate-700 font-semibold block mb-1">Muayene Ücreti (₺)</label>
                 <input
                   type="number"
-                  value={formData.muayeneUcreti || ""}
-                  onChange={(e) => setFormData({ ...formData, muayeneUcreti: Number(e.target.value) })}
-                  placeholder="1820"
+                  min="0"
+                  step="any"
+                  value={formData.muayeneUcreti ?? ""}
+                  onChange={(e) => setFormData({ ...formData, muayeneUcreti: parseNumInput(e.target.value) })}
+                  placeholder="0"
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl"
                 />
               </div>

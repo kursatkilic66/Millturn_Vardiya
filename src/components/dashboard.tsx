@@ -32,8 +32,10 @@ import ShiftModal from "@/src/components/ShiftModal";
 import EmployeeModal from "@/src/components/EmployeeModal";
 import VehicleDashboard from "@/src/components/vehicles/VehicleDashboard";
 import PerformanceReports from "@/src/components/reports/PerformanceReports";
+import { useToast } from "@/src/components/ToastProvider";
 
 export default function Dashboard() {
+  const { showSuccess, showError } = useToast();
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [isModalOpen, setModalOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<ShiftRecord | null>(null);
@@ -112,19 +114,23 @@ export default function Dashboard() {
       } else {
         reloadShifts();
       }
+      showSuccess(editingShift?.id ? "Vardiya kaydı güncellendi." : "Vardiya kaydı başarıyla eklendi.");
     } catch (error) {
       console.error("Kayıt hatası:", error);
       setActionError("Vardiya kaydedilemedi. Lütfen tekrar deneyin.");
+      showError("Vardiya kaydedilirken bir hata oluştu.");
     }
   };
 
   const handleDeleteShift = async (id: string) => {
     try {
       await deleteShift(id);
+      showSuccess("Vardiya kaydı silindi.");
       reloadShifts();
     } catch (error) {
       console.error("Silme hatası:", error);
       setActionError("Vardiya silinemedi. Lütfen tekrar deneyin.");
+      showError("Vardiya silinirken bir hata oluştu.");
     }
   };
 
@@ -132,15 +138,18 @@ export default function Dashboard() {
     try {
       await saveEmployee(emp);
       setSelectedEmployee(emp.name);
+      showSuccess(editingEmployee ? "Personel bilgileri güncellendi." : "Yeni personel başarıyla eklendi.");
     } catch (error) {
       console.error("Personel kaydedilemedi:", error);
       setActionError("Personel kaydedilemedi. Lütfen tekrar deneyin.");
+      showError("Personel kaydedilirken bir hata oluştu.");
     }
   };
 
   const handleDeleteEmployee = async (id: string) => {
     try {
       await removeEmployee(id);
+      showSuccess("Personel kaydı silindi.");
       const remaining = employees.filter((e) => e.id !== id);
       if (remaining.length > 0) {
         setSelectedEmployee(remaining[0].name);
@@ -148,6 +157,7 @@ export default function Dashboard() {
     } catch (error) {
       console.error("Personel silinemedi:", error);
       setActionError("Personel silinemedi. Lütfen tekrar deneyin.");
+      showError("Personel silinirken bir hata oluştu.");
     }
   };
 
