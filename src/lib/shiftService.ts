@@ -11,6 +11,13 @@ import {
 } from "firebase/firestore";
 import { db } from "@/src/lib/firebase";
 import { ShiftRecord } from "@/src/types";
+import {
+  isLocalMssqlMode,
+  mssqlList,
+  mssqlAdd,
+  mssqlUpdate,
+  mssqlDelete,
+} from "@/src/lib/localDbClient";
 
 const SHIFTS_COLLECTION = "shifts";
 
@@ -46,6 +53,14 @@ export async function getShiftsByEmployeeAndMonth(
   employeeName: string,
   monthId: string,
 ): Promise<ShiftRecord[]> {
+  if (isLocalMssqlMode) {
+    const all = await mssqlList<ShiftRecord>("shifts");
+    const filtered = all
+      .filter((s) => s.employeeName === employeeName && s.monthId === monthId)
+      .map((s) => mapShift(s.id, s));
+    return sortByDay(filtered);
+  }
+
   const q = query(
     collection(db, SHIFTS_COLLECTION),
     where("employeeName", "==", employeeName),
@@ -59,6 +74,13 @@ export async function getShiftsByEmployeeAndMonth(
 
 /** Tüm personelin ilgili aydaki vardiyalarını getirir (raporlar için). */
 export async function getShiftsByMonth(monthId: string): Promise<ShiftRecord[]> {
+  if (isLocalMssqlMode) {
+    const all = await mssqlList<ShiftRecord>("shifts");
+    return all
+      .filter((s) => s.monthId === monthId)
+      .map((s) => mapShift(s.id, s));
+  }
+
   const q = query(collection(db, SHIFTS_COLLECTION), where("monthId", "==", monthId));
   const snapshot = await getDocs(q);
   const shifts: ShiftRecord[] = [];
@@ -88,6 +110,15 @@ export async function saveShift(
     note: shift.note || "",
   };
 
+  if (isLocalMssqlMode) {
+    if (editingId) {
+      await mssqlUpdate("shifts", editingId, payload);
+    } else {
+      await mssqlAdd("shifts", payload);
+    }
+    return monthId;
+  }
+
   if (editingId) {
     await updateDoc(doc(db, SHIFTS_COLLECTION, editingId), payload);
   } else {
@@ -97,5 +128,9 @@ export async function saveShift(
 }
 
 export async function deleteShift(id: string): Promise<void> {
+  if (isLocalMssqlMode) {
+    await mssqlDelete("shifts", id);
+    return;
+  }
   await deleteDoc(doc(db, SHIFTS_COLLECTION, id));
 }

@@ -39,7 +39,7 @@ const statuses = [
   },
   {
     name: "Resmi Tatil",
-    desc: "Resmi Tatil Çalışması",
+    desc: "Resmi Tatil / Fazla Mesai",
     color: "text-indigo-700 bg-indigo-50 border-indigo-200",
   },
 ];
@@ -64,9 +64,15 @@ export default function ShiftModal({
     note: "",
   });
 
+  const [workedOnHoliday, setWorkedOnHoliday] = useState(false);
+
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
     if (editingShift) {
+      const hasHolidayHours =
+        editingShift.status === "Resmi Tatil" &&
+        Boolean(editingShift.checkIn && editingShift.checkOut);
+      setWorkedOnHoliday(hasHolidayHours);
       setFormData({
         ...editingShift,
         reason: editingShift.reason || "",
@@ -79,6 +85,7 @@ export default function ShiftModal({
       const year = today.getFullYear();
       const dateStr = `${day}.${month}.${year}`;
 
+      setWorkedOnHoliday(false);
       setFormData({
         id: Date.now().toString(),
         employeeName: employeeName || "",
@@ -116,18 +123,17 @@ export default function ShiftModal({
     }
   };
 
-  const isTimeDisabled = [
-    "Yıllık İzin",
-    "Raporlu",
-    "Gelmedi",
-    "Hafta Tatili",
-  ].includes(formData.status);
+  const isTimeDisabled =
+    ["Yıllık İzin", "Raporlu", "Gelmedi", "Hafta Tatili"].includes(
+      formData.status,
+    ) ||
+    (formData.status === "Resmi Tatil" && !workedOnHoliday);
 
   // Standart vardiya saatlerini hızlı doldurma
   const applyPreset = (inTime: string, outTime: string) => {
     setFormData({
       ...formData,
-      status: "Çalıştı",
+      status: formData.status === "Resmi Tatil" ? "Resmi Tatil" : "Çalıştı",
       checkIn: inTime,
       checkOut: outTime,
     });
@@ -225,7 +231,9 @@ export default function ShiftModal({
                   "Yıllık İzin",
                   "Raporlu",
                   "Hafta Tatili",
+                  "Resmi Tatil",
                 ].includes(newStatus);
+                setWorkedOnHoliday(false);
                 setFormData({
                   ...formData,
                   status: newStatus,
@@ -233,7 +241,6 @@ export default function ShiftModal({
                   checkOut: shouldClearTimes
                     ? ""
                     : formData.checkOut || "17:30",
-                  // Durum değiştiğinde varsayılan uygun nedeni ayarla
                   reason:
                     newStatus === "Yıllık İzin"
                       ? "Yıllık Ücretli İzin"
@@ -251,6 +258,34 @@ export default function ShiftModal({
               ))}
             </select>
           </div>
+
+          {/* Resmi Tatilde Çalıştı Checkbox */}
+          {formData.status === "Resmi Tatil" && (
+            <label className="flex items-center gap-3 p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/70 cursor-pointer select-none transition hover:bg-indigo-50">
+              <input
+                type="checkbox"
+                checked={workedOnHoliday}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setWorkedOnHoliday(checked);
+                  setFormData({
+                    ...formData,
+                    checkIn: checked ? formData.checkIn || "07:30" : "",
+                    checkOut: checked ? formData.checkOut || "17:30" : "",
+                  });
+                }}
+                className="w-4 h-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+              />
+              <div className="flex flex-col">
+                <span className="text-xs sm:text-sm font-bold text-indigo-950">
+                  Resmi Tatilde Çalıştı
+                </span>
+                <span className="text-[11px] text-indigo-700">
+                  İşaretlenirse giriş-çıkış saati aktifleşir ve çalışılan süre yalnızca fazla mesaiye yazılır.
+                </span>
+              </div>
+            </label>
+          )}
 
           {/* Rapor / İzin / Devamsızlık Gerekçesi (Varsa) */}
           {quickReasons.length > 0 && (
@@ -294,7 +329,7 @@ export default function ShiftModal({
             </div>
           )}
 
-          {/* Hızlı Şablon Butonları (Sadece Normal Çalışma Modunda) */}
+          {/* Hızlı Şablon Butonları (Saat Girişi Aktifken) */}
           {!isTimeDisabled && (
             <div>
               <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-1.5 flex items-center gap-1">
@@ -383,9 +418,23 @@ export default function ShiftModal({
             <div className="flex items-center gap-2 p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-500">
               <Lock size={14} className="shrink-0 text-slate-400" />
               <span>
-                Seçili durum (
-                <strong className="text-slate-700">{formData.status}</strong>)
-                için çalışma saati girilmez.
+                {formData.status === "Resmi Tatil" ? (
+                  <>
+                    Resmi tatilde mesai girilmesi için yukarıdaki{" "}
+                    <strong className="text-slate-700">
+                      Resmi Tatilde Çalıştı
+                    </strong>{" "}
+                    kutusunu işaretleyin.
+                  </>
+                ) : (
+                  <>
+                    Seçili durum (
+                    <strong className="text-slate-700">
+                      {formData.status}
+                    </strong>
+                    ) için çalışma saati girilmez.
+                  </>
+                )}
               </span>
             </div>
           )}

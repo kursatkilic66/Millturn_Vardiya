@@ -8,6 +8,13 @@ import {
 } from "firebase/firestore";
 import { db } from "@/src/lib/firebase";
 import { Vehicle } from "@/src/types/vehicle";
+import {
+  isLocalMssqlMode,
+  mssqlList,
+  mssqlAdd,
+  mssqlUpdate,
+  mssqlDelete,
+} from "@/src/lib/localDbClient";
 
 const VEHICLES_COLLECTION = "vehicles";
 
@@ -33,6 +40,10 @@ function stripUndefined<T>(value: T): T {
 
 export async function getVehiclesFromFirestore(): Promise<Vehicle[]> {
   try {
+    if (isLocalMssqlMode) {
+      return await mssqlList<Vehicle>("vehicles");
+    }
+
     const snapshot = await getDocs(collection(db, VEHICLES_COLLECTION));
     const vehicles: Vehicle[] = [];
     snapshot.forEach((d) => {
@@ -53,6 +64,15 @@ export async function addVehicleToFirestore(
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   });
+
+  if (isLocalMssqlMode) {
+    const id = await mssqlAdd(
+      "vehicles",
+      cleanData as unknown as Record<string, unknown>,
+    );
+    return { ...(cleanData as Omit<Vehicle, "id">), id };
+  }
+
   const docRef = await addDoc(collection(db, VEHICLES_COLLECTION), cleanData);
   return { ...(cleanData as Omit<Vehicle, "id">), id: docRef.id };
 }
@@ -61,15 +81,30 @@ export async function updateVehicleInFirestore(
   id: string,
   vehicle: Partial<Vehicle>,
 ): Promise<void> {
-  const docRef = doc(db, VEHICLES_COLLECTION, id);
   const cleanData = stripUndefined({
     ...vehicle,
     updatedAt: new Date().toISOString(),
   });
+
+  if (isLocalMssqlMode) {
+    await mssqlUpdate(
+      "vehicles",
+      id,
+      cleanData as unknown as Record<string, unknown>,
+    );
+    return;
+  }
+
+  const docRef = doc(db, VEHICLES_COLLECTION, id);
   await updateDoc(docRef, cleanData);
 }
 
 export async function deleteVehicleFromFirestore(id: string): Promise<void> {
+  if (isLocalMssqlMode) {
+    await mssqlDelete("vehicles", id);
+    return;
+  }
+
   const docRef = doc(db, VEHICLES_COLLECTION, id);
   await deleteDoc(docRef);
 }

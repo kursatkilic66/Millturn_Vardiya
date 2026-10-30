@@ -7,6 +7,12 @@ import {
 } from "firebase/firestore";
 import { db } from "@/src/lib/firebase";
 import { Employee } from "@/src/types";
+import {
+  isLocalMssqlMode,
+  mssqlList,
+  mssqlSet,
+  mssqlDelete,
+} from "@/src/lib/localDbClient";
 
 const EMPLOYEES_COLLECTION = "employees";
 
@@ -19,9 +25,27 @@ export const INITIAL_EMPLOYEES: Employee[] = [
 
 /**
  * Personelleri getirir. Koleksiyon boşsa (ilk kurulum) varsayılan personelleri
- * Firestore'a yazar ve onları döndürür.
+ * veritabanına yazar ve onları döndürür.
  */
 export async function getEmployees(): Promise<Employee[]> {
+  if (isLocalMssqlMode) {
+    const rows = await mssqlList<Employee>("employees");
+    if (rows.length === 0) {
+      for (const emp of INITIAL_EMPLOYEES) {
+        await mssqlSet("employees", emp.id, emp as unknown as Record<string, unknown>);
+      }
+      return INITIAL_EMPLOYEES;
+    }
+    return rows.map((data) => ({
+      id: data.id,
+      name: data.name,
+      title: data.title || "Üretim Personeli",
+      phone: data.phone || "",
+      startDate: data.startDate || "",
+      annualLeaveAllowance: data.annualLeaveAllowance ?? 14,
+    }));
+  }
+
   const snapshot = await getDocs(collection(db, EMPLOYEES_COLLECTION));
 
   if (snapshot.empty) {
@@ -49,11 +73,25 @@ export async function getEmployees(): Promise<Employee[]> {
 }
 
 export async function saveEmployee(employee: Employee): Promise<void> {
+  if (isLocalMssqlMode) {
+    await mssqlSet(
+      "employees",
+      employee.id,
+      employee as unknown as Record<string, unknown>,
+    );
+    return;
+  }
+
   await setDoc(doc(db, EMPLOYEES_COLLECTION, employee.id), employee, {
     merge: true,
   });
 }
 
 export async function deleteEmployee(id: string): Promise<void> {
+  if (isLocalMssqlMode) {
+    await mssqlDelete("employees", id);
+    return;
+  }
+
   await deleteDoc(doc(db, EMPLOYEES_COLLECTION, id));
 }
