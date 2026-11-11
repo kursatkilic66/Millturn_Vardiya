@@ -24,11 +24,17 @@ import {
   AlertCircle,
   TrendingUp,
   Save,
+  RefreshCw,
+  ArrowLeftRight,
+  History,
+  Gauge,
 } from "lucide-react";
 import {
   Vehicle,
   MaintenanceRecord,
   TireRecord,
+  TireLogEntry,
+  ActiveTireInfo,
   FineRecord,
   DamageRecord,
   BreakdownRecord,
@@ -113,12 +119,29 @@ export default function VehicleDetailModal({
     islemTarihi: todayStr(),
   });
 
-  const [lastikForm, setLastikForm] = useState<Partial<TireRecord>>({
+  const [lastikForm, setLastikForm] = useState<Partial<TireRecord> & { setOlarakEkle?: boolean }>({
     konum: "Ön Sol",
     tip: "4 Mevsim",
     marka: "Michelin",
-    aciklama: "Lastik Değişimi",
+    ebat: "205/55 R16",
+    kondisyon: "Yeni",
+    aciklama: "Lastik Kaydı",
+    setOlarakEkle: false,
   });
+
+  // "Lastikleri Değiştir" Alanı State'leri (Önce değişecek lastikler seçilir, sonra tek seferde KM sorulur)
+  const [showTireChangePanel, setShowTireChangePanel] = useState<boolean>(false);
+  const [tireChangeSelections, setTireChangeSelections] = useState<
+    Record<"Ön Sol" | "Ön Sağ" | "Arka Sol" | "Arka Sağ", string>
+  >({
+    "Ön Sol": "",
+    "Ön Sağ": "",
+    "Arka Sol": "",
+    "Arka Sağ": "",
+  });
+  const [tireChangeKm, setTireChangeKm] = useState<number | undefined>(undefined);
+  const [quickSwapTipFilter, setQuickSwapTipFilter] = useState<"Tümü" | "Yaz" | "Kış" | "4 Mevsim">("Tümü");
+  const [tireListFilter, setTireListFilter] = useState<"tumu" | "takili" | "yedek">("tumu");
 
   const [cezaForm, setCezaForm] = useState<Partial<FineRecord>>({
     cezaTutari: undefined,
@@ -232,14 +255,292 @@ export default function VehicleDetailModal({
     }
   };
 
+  const WHEEL_SLOTS: {
+    konum: "Ön Sol" | "Ön Sağ" | "Arka Sol" | "Arka Sağ";
+    field: "onSolLastik" | "onSagLastik" | "arkaSolLastik" | "arkaSagLastik";
+  }[] = [
+    { konum: "Ön Sol", field: "onSolLastik" },
+    { konum: "Ön Sağ", field: "onSagLastik" },
+    { konum: "Arka Sol", field: "arkaSolLastik" },
+    { konum: "Arka Sağ", field: "arkaSagLastik" },
+  ];
+
+  const formatTireEbat = (t?: Partial<TireRecord> | null): string => {
+    if (!t) return "Ebat Belirtilmedi";
+    if (t.ebat && t.ebat.trim()) return t.ebat.trim();
+    if (t.tabanBoyutu && t.yanakGenisligi && t.jantCapi) {
+      return `${t.tabanBoyutu}/${t.yanakGenisligi} R${t.jantCapi}`;
+    }
+    if (t.tabanBoyutu) return `${t.tabanBoyutu}`;
+    return "205/55 R16";
+  };
+
+  /**
+   * Araçtaki tüm lastikleri (hem `lastikler` listesindekileri hem de daha önce
+   * `onSolLastik` vb. alanlarda tanımlanmış başlangıç lastiklerini) tek bir SSOT
+   * listesinde birleştirir. Böylece eski araçlardaki takılı lastikler de söküldüğünde
+   * kaybolmaz ve loglarıyla birlikte listede kalır.
+   */
+  const getNormalizedTires = (v: Vehicle): TireRecord[] => {
+    const list: TireRecord[] = (v.lastikler || []).map((t) => ({
+      ...t,
+      ebat: formatTireEbat(t),
+      kondisyon: t.kondisyon || "İyi",
+      takiliMi: t.takiliMi ?? false,
+      loglar:
+        t.loglar && t.loglar.length > 0
+          ? t.loglar
+          : [
+              {
+                id: `log_init_${t.id}`,
+                tarih: t.sonIslemTarihi || t.satinAlmaTarihi || v.createdAt?.split("T")[0] || todayStr(),
+                islem: t.takiliMi ? `Araç üzerinde (${t.konum}) kayıtlı` : `Sisteme kayıtlı (${t.konum})`,
+                konum: t.konum,
+                km: t.islemKm ?? v.guncelKm ?? 0,
+                aciklama: t.aciklama,
+              },
+            ],
+    }));
+
+    for (const slot of WHEEL_SLOTS) {
+      const hasMountedInList = list.some((t) => t.takiliMi && t.konum === slot.konum);
+      const slotInfo = v[slot.field];
+      const initId = `init_${v.id}_${slot.field}`;
+      const alreadyExistsById = list.some((t) => t.id === initId);
+
+      if (!hasMountedInList && !alreadyExistsById && slotInfo && slotInfo.marka && slotInfo.marka.trim() !== "") {
+        list.push({
+          id: initId,
+          aciklama: `${slot.konum} Başlangıç Lastiği`,
+          konum: slot.konum,
+          marka: slotInfo.marka,
+          ebat: slotInfo.ebat || "205/55 R16",
+          tip: slotInfo.tur || "4 Mevsim",
+          kondisyon: slotInfo.durum || "İyi",
+          takiliMi: true,
+          islemKm: v.guncelKm || 0,
+          sonIslemTarihi: v.createdAt?.split("T")[0] || todayStr(),
+          loglar: [
+            {
+              id: `log_${initId}`,
+              tarih: v.createdAt?.split("T")[0] || todayStr(),
+              islem: `Araç üzerinde (${slot.konum}) takılı olarak tanımlandı`,
+              konum: slot.konum,
+              km: v.guncelKm || 0,
+            },
+          ],
+        });
+      }
+    }
+
+    return list;
+  };
+
+  /**
+   * `lastikler` listesindeki takılı (`takiliMi === true`) lastikleri aracın
+   * `onSolLastik`, `onSagLastik`, `arkaSolLastik`, `arkaSagLastik` alanlarıyla senkronize eder.
+   */
+  const syncActiveTireSlots = (v: Vehicle, tires: TireRecord[]): Vehicle => {
+    const next = { ...v, lastikler: tires };
+    for (const slot of WHEEL_SLOTS) {
+      const mounted = tires.find((t) => t.takiliMi && t.konum === slot.konum);
+      if (mounted) {
+        next[slot.field] = {
+          marka: mounted.marka,
+          ebat: formatTireEbat(mounted),
+          tur: mounted.tip,
+          durum: mounted.kondisyon || "İyi",
+        };
+      } else {
+        next[slot.field] = {
+          marka: "",
+          ebat: "",
+          tur: "4 Mevsim",
+          durum: "İyi",
+        };
+      }
+    }
+    return next;
+  };
+
+  const allTires = getNormalizedTires(vehicle);
+
+  // Belirli bir tekerlek konumu için listeden yedek lastik seçme (Aynı yedek lastik başka konuma seçilmişse oradan temizler)
+  const handleSelectTireForSlot = (
+    slotKonum: "Ön Sol" | "Ön Sağ" | "Arka Sol" | "Arka Sağ",
+    value: string,
+  ) => {
+    setTireChangeSelections((prev) => {
+      const next = { ...prev };
+      if (value && value !== "__UNMOUNT__") {
+        for (const k of ["Ön Sol", "Ön Sağ", "Arka Sol", "Arka Sağ"] as const) {
+          if (k !== slotKonum && next[k] === value) {
+            next[k] = "";
+          }
+        }
+      }
+      next[slotKonum] = value;
+      return next;
+    });
+  };
+
+  // Yedekteki lastikleri tek tuşla konumlarına otomatik yerleştirme (4'ten az varsa sadece bulunanları seçer)
+  const handleAutoFillSpareSelections = (
+    filterOverride?: "Tümü" | "Yaz" | "Kış" | "4 Mevsim",
+  ) => {
+    const activeFilter = filterOverride ?? quickSwapTipFilter;
+    const sparePool = allTires.filter(
+      (t) => !t.takiliMi && (activeFilter === "Tümü" || t.tip === activeFilter),
+    );
+    const usedIds = new Set<string>();
+    const nextSelections: Record<"Ön Sol" | "Ön Sağ" | "Arka Sol" | "Arka Sağ", string> = {
+      "Ön Sol": "",
+      "Ön Sağ": "",
+      "Arka Sol": "",
+      "Arka Sağ": "",
+    };
+
+    // 1. Öncelik: Kendi konumuna ("Ön Sol" vb.) kayıtlı yedek lastikleri eşleştir
+    for (const slot of WHEEL_SLOTS) {
+      const exactMatch = sparePool.find(
+        (t) => t.konum === slot.konum && !usedIds.has(t.id),
+      );
+      if (exactMatch) {
+        usedIds.add(exactMatch.id);
+        nextSelections[slot.konum] = exactMatch.id;
+      }
+    }
+
+    // 2. Kendi konumunda bulamayan varsa ve boşta yedek (Stepne vb.) kalmışsa sırayla yerleştir
+    for (const slot of WHEEL_SLOTS) {
+      if (!nextSelections[slot.konum]) {
+        const fallback = sparePool.find((t) => !usedIds.has(t.id));
+        if (fallback) {
+          usedIds.add(fallback.id);
+          nextSelections[slot.konum] = fallback.id;
+        }
+      }
+    }
+
+    setTireChangeSelections(nextSelections);
+  };
+
+  // Seçilen lastikleri araca takma / değiştirme ve tek seferde KM güncelleme
+  const handleApplyTireChanges = async () => {
+    const activeSlots = WHEEL_SLOTS.filter(
+      (s) => tireChangeSelections[s.konum] && tireChangeSelections[s.konum] !== "",
+    );
+
+    if (activeSlots.length === 0) {
+      setSubRecordError("Lütfen en az bir tekerlek konumu için listeden takılacak yedek lastiği seçiniz.");
+      showError("Değiştirilecek lastik seçilmedi.");
+      return;
+    }
+
+    if (tireChangeKm === undefined || isNaN(Number(tireChangeKm)) || Number(tireChangeKm) < 0) {
+      setSubRecordError("Lütfen aracın güncel kilometresini (KM) giriniz.");
+      showError("Lütfen aracın güncel KM bilgisini giriniz.");
+      return;
+    }
+
+    setSubRecordError(null);
+    setIsSaving(true);
+    const girilenKm = Number(tireChangeKm);
+    const nowDate = todayStr();
+
+    // Hangi mevcut takılı lastikler sökülecek ve hangi yedek lastikler hangi konuma takılacak belirle
+    const unmountSlotMap = new Map<string, "Ön Sol" | "Ön Sağ" | "Arka Sol" | "Arka Sağ">();
+    const mountSlotMap = new Map<string, "Ön Sol" | "Ön Sağ" | "Arka Sol" | "Arka Sağ">();
+
+    for (const slot of activeSlots) {
+      const selVal = tireChangeSelections[slot.konum];
+      const currentMounted = allTires.find((t) => t.takiliMi && t.konum === slot.konum);
+
+      if (currentMounted && currentMounted.id !== selVal) {
+        unmountSlotMap.set(currentMounted.id, slot.konum);
+      }
+
+      if (selVal !== "__UNMOUNT__") {
+        mountSlotMap.set(selVal, slot.konum);
+      }
+    }
+
+    const updatedTires = allTires.map((t) => {
+      if (unmountSlotMap.has(t.id)) {
+        const pos = unmountSlotMap.get(t.id)!;
+        const logEntry: TireLogEntry = {
+          id: `log_${Date.now()}_out_${t.id}`,
+          tarih: nowDate,
+          islem: `${pos} konumundan çıkarıldı (Yedeğe alındı)`,
+          konum: pos,
+          km: girilenKm,
+        };
+        return {
+          ...t,
+          takiliMi: false,
+          islemKm: girilenKm,
+          sonIslemTarihi: nowDate,
+          loglar: [logEntry, ...(t.loglar || [])],
+        };
+      }
+
+      if (mountSlotMap.has(t.id)) {
+        const pos = mountSlotMap.get(t.id)!;
+        const logEntry: TireLogEntry = {
+          id: `log_${Date.now()}_in_${t.id}`,
+          tarih: nowDate,
+          islem: `${pos} konumuna takıldı`,
+          konum: pos,
+          km: girilenKm,
+        };
+        return {
+          ...t,
+          konum: pos,
+          takiliMi: true,
+          islemKm: girilenKm,
+          sonIslemTarihi: nowDate,
+          loglar: [logEntry, ...(t.loglar || [])],
+        };
+      }
+
+      return t;
+    });
+
+    const syncedVehicle = syncActiveTireSlots(
+      { ...vehicle, guncelKm: girilenKm },
+      updatedTires,
+    );
+
+    try {
+      await onUpdateVehicle(syncedVehicle);
+      setShowTireChangePanel(false);
+      setTireChangeSelections({
+        "Ön Sol": "",
+        "Ön Sağ": "",
+        "Arka Sol": "",
+        "Arka Sağ": "",
+      });
+      setTireChangeKm(undefined);
+      showSuccess(
+        `${activeSlots.length} tekerlek için lastik değişimi tamamlandı ve aracın güncel KM'si (${girilenKm.toLocaleString("tr-TR")} KM) olarak güncellendi.`,
+      );
+    } catch {
+      setSubRecordError("Lastik değişimi kaydedilemedi. Lütfen tekrar deneyin.");
+      showError("Lastik değişimi sırasında bir hata oluştu.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Alt kayıt silme işlemi
   const handleDeleteSubRecord = async (type: TabKey, recordId: string) => {
     setSubRecordError(null);
-    const updated = { ...vehicle };
+    let updated: Vehicle = { ...vehicle };
     if (type === "bakim") {
       updated.bakimlar = (updated.bakimlar || []).filter((r) => r.id !== recordId);
     } else if (type === "lastik") {
-      updated.lastikler = (updated.lastikler || []).filter((r) => r.id !== recordId);
+      const remainingTires = allTires.filter((r) => r.id !== recordId);
+      updated = syncActiveTireSlots(updated, remainingTires);
     } else if (type === "ceza") {
       updated.cezalar = (updated.cezalar || []).filter((r) => r.id !== recordId);
     } else if (type === "ariza") {
@@ -266,7 +567,7 @@ export default function VehicleDetailModal({
   const handleSaveSubRecord = async (type: TabKey) => {
     setSubRecordError(null);
     setIsSaving(true);
-    const updated = { ...vehicle };
+    let updated: Vehicle = { ...vehicle };
 
     if (type === "bakim") {
       const islemKm = bakimForm.km !== undefined && bakimForm.km > 0 ? Number(bakimForm.km) : vehicle.guncelKm;
@@ -286,19 +587,56 @@ export default function VehicleDetailModal({
       }
       updated.bakimlar = [newRec, ...(updated.bakimlar || [])];
     } else if (type === "lastik") {
-      const newRec: TireRecord = {
-        id: "l_" + Date.now(),
-        aciklama: lastikForm.aciklama?.trim() || "Lastik Kaydı",
-        konum: lastikForm.konum || "Ön Sol",
-        marka: lastikForm.marka?.trim() || "Bilinmiyor",
-        tip: lastikForm.tip || "4 Mevsim",
-        tabanBoyutu: lastikForm.tabanBoyutu ? Number(lastikForm.tabanBoyutu) : undefined,
-        yanakGenisligi: lastikForm.yanakGenisligi ? Number(lastikForm.yanakGenisligi) : undefined,
-        jantCapi: lastikForm.jantCapi ? Number(lastikForm.jantCapi) : undefined,
-        satinAlmaTarihi: lastikForm.satinAlmaTarihi || undefined,
-        sonrakiDegisimTarihi: lastikForm.sonrakiDegisimTarihi || undefined,
-      };
-      updated.lastikler = [newRec, ...(updated.lastikler || [])];
+      const nowDate = todayStr();
+      const targetPositions: ("Ön Sol" | "Ön Sağ" | "Arka Sol" | "Arka Sağ" | "Stepne")[] =
+        lastikForm.setOlarakEkle
+          ? ["Ön Sol", "Ön Sağ", "Arka Sol", "Arka Sağ"]
+          : [lastikForm.konum || "Ön Sol"];
+
+      const computedEbat =
+        lastikForm.ebat?.trim() ||
+        (lastikForm.tabanBoyutu && lastikForm.yanakGenisligi && lastikForm.jantCapi
+          ? `${lastikForm.tabanBoyutu}/${lastikForm.yanakGenisligi} R${lastikForm.jantCapi}`
+          : "205/55 R16");
+
+      const currentTires = [...allTires];
+
+      const newRecords: TireRecord[] = targetPositions.map((pos, idx) => {
+        const recId = `l_${Date.now()}_${idx}`;
+        const initLog: TireLogEntry = {
+          id: `log_${recId}_init`,
+          tarih: nowDate,
+          islem: `Sisteme yedek/envanter lastiği olarak eklendi (${pos})`,
+          konum: pos,
+          km: vehicle.guncelKm || 0,
+          aciklama: lastikForm.aciklama?.trim() || undefined,
+        };
+
+        return {
+          id: recId,
+          aciklama: lastikForm.aciklama?.trim() || "Lastik Kaydı",
+          seriNo: lastikForm.seriNo?.trim() || undefined,
+          konum: pos,
+          marka: lastikForm.marka?.trim() || "Bilinmiyor",
+          tip: lastikForm.tip || "4 Mevsim",
+          ebat: computedEbat,
+          kondisyon: lastikForm.kondisyon || "Yeni",
+          takiliMi: false,
+          sonIslemTarihi: nowDate,
+          tabanBoyutu: lastikForm.tabanBoyutu ? Number(lastikForm.tabanBoyutu) : undefined,
+          yanakGenisligi: lastikForm.yanakGenisligi ? Number(lastikForm.yanakGenisligi) : undefined,
+          jantCapi: lastikForm.jantCapi ? Number(lastikForm.jantCapi) : undefined,
+          satinAlmaTarihi: lastikForm.satinAlmaTarihi || undefined,
+          sonrakiDegisimTarihi: lastikForm.sonrakiDegisimTarihi || undefined,
+          omurYil: lastikForm.omurYil ? Number(lastikForm.omurYil) : undefined,
+          omurKm: lastikForm.omurKm ? Number(lastikForm.omurKm) : undefined,
+          azamiHavaBasinciBar: lastikForm.azamiHavaBasinciBar ? Number(lastikForm.azamiHavaBasinciBar) : undefined,
+          azamiHavaBasinciPsi: lastikForm.azamiHavaBasinciPsi ? Number(lastikForm.azamiHavaBasinciPsi) : undefined,
+          loglar: [initLog],
+        };
+      });
+
+      updated = syncActiveTireSlots(updated, [...newRecords, ...currentTires]);
     } else if (type === "ceza") {
       const newRec: FineRecord = {
         id: "c_" + Date.now(),
@@ -401,6 +739,18 @@ export default function VehicleDetailModal({
       // Başarılı kayıttan sonra ilgili formu sıfırla ve kapat
       if (type === "bakim") {
         setBakimForm({ islemTuru: "Periyodik Bakım", tutar: undefined, km: undefined, islemTarihi: todayStr() });
+      } else if (type === "lastik") {
+        setLastikForm({
+          konum: "Ön Sol",
+          tip: "4 Mevsim",
+          marka: "Michelin",
+          ebat: "205/55 R16",
+          kondisyon: "Yeni",
+          takiliMi: false,
+          islemKm: undefined,
+          aciklama: "Lastik Kaydı",
+          setOlarakEkle: false,
+        });
       } else if (type === "ceza") {
         setCezaForm({ cezaTutari: undefined, tarih: todayStr(), aciklama: "Trafik Cezası", odendiMi: true });
       } else if (type === "ariza") {
@@ -440,7 +790,7 @@ export default function VehicleDetailModal({
     { key: "muayene", label: "Muayene & Egzoz", icon: <Stethoscope size={16} /> },
     { key: "sigorta", label: "Sigorta & Kasko", icon: <ShieldCheck size={16} /> },
     { key: "bakim", label: "Bakım & Servis", icon: <Wrench size={16} />, badge: vehicle.bakimlar?.length },
-    { key: "lastik", label: "Lastik Takibi", icon: <Disc size={16} />, badge: vehicle.lastikler?.length },
+    { key: "lastik", label: "Lastik Takibi", icon: <Disc size={16} />, badge: allTires.length },
     { key: "ceza", label: "Trafik Cezaları", icon: <Receipt size={16} />, badge: vehicle.cezalar?.length },
     { key: "ariza", label: "Arıza Bildirimleri", icon: <AlertTriangle size={16} />, badge: vehicle.arizalar?.length },
     { key: "kaza", label: "Kaza & Hasar", icon: <AlertCircle size={16} />, badge: vehicle.kazalar?.length },
@@ -1090,172 +1440,737 @@ export default function VehicleDetailModal({
           )}
 
           {/* 6. LASTİK TAKİBİ (COMPONENT / CARD BAZLI TASARIM) */}
-          {activeTab === "lastik" && (
-            <div className="space-y-6">
-              {/* 4 Takılı Lastik Kartı */}
-              <div>
-                <h4 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-                  <Disc size={16} className="text-rose-600" />
-                  Araç Üzerinde Takılı 4 Lastik Durumu
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-                  {[
-                    { title: "Ön Sol", info: vehicle.onSolLastik },
-                    { title: "Ön Sağ", info: vehicle.onSagLastik },
-                    { title: "Arka Sol", info: vehicle.arkaSolLastik },
-                    { title: "Arka Sağ", info: vehicle.arkaSagLastik },
-                  ].map((tire, idx) => (
-                    <div key={idx} className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-bold text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{tire.title}</span>
-                        <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                          {tire.info?.tur || "4 Mevsim"}
-                        </span>
-                      </div>
-                      <div className="text-xs font-bold text-slate-800 mb-1">{tire.info?.marka || "Marka Belirtilmedi"}</div>
-                      <div className="text-xs text-slate-500 font-mono mb-2">{tire.info?.ebat || "Ebat Belirtilmedi"}</div>
-                      <span className="inline-block text-[11px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">
-                        Durum: {tire.info?.durum || "İyi"}
-                      </span>
+          {activeTab === "lastik" && (() => {
+            const mountedTires = allTires.filter((t) => t.takiliMi);
+            const spareTires = allTires.filter((t) => !t.takiliMi);
+            const filteredTireList =
+              tireListFilter === "takili"
+                ? mountedTires
+                : tireListFilter === "yedek"
+                ? spareTires
+                : allTires;
+
+            const selectedChangeCount = WHEEL_SLOTS.filter(
+              (s) => tireChangeSelections[s.konum] && tireChangeSelections[s.konum] !== "",
+            ).length;
+
+            return (
+              <div className="space-y-6">
+                {/* 1. Üst Bölüm: Araç Üzerinde Takılı 4 Lastik & "Lastikleri Değiştir" Alanı */}
+                <div className="space-y-3.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2.5">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                        <Disc size={16} className="text-rose-600" />
+                        Araç Üzerinde Takılı 4 Lastik Durumu
+                      </h4>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        &quot;Lastikleri Değiştir&quot; alanından değişecek lastikleri seçip tek seferde araç KM&apos;sini güncelleyebilirsiniz.
+                      </p>
                     </div>
-                  ))}
-                </div>
-              </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowTireChangePanel((prev) => !prev);
+                          setShowAddSubRecord(null);
+                          setSubRecordError(null);
+                        }}
+                        className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition shadow-xs ${
+                          showTireChangePanel
+                            ? "bg-slate-800 text-white"
+                            : "bg-indigo-600 hover:bg-indigo-700 text-white"
+                        }`}
+                      >
+                        <ArrowLeftRight size={14} />
+                        {showTireChangePanel ? "Lastik Değişim Alanını Kapat" : "Lastikleri Değiştir"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAddSubRecord((prev) => (prev === "lastik" ? null : "lastik"));
+                          setShowTireChangePanel(false);
+                          setSubRecordError(null);
+                        }}
+                        className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition shadow-xs"
+                      >
+                        <Plus size={14} />
+                        Yeni Lastik Ekle
+                      </button>
+                    </div>
+                  </div>
 
-              {/* Lastik Değişim Geçmişi */}
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <h5 className="text-xs font-bold text-slate-700">Lastik Kayıt ve Değişim Geçmişi</h5>
-                  <button
-                    onClick={() => setShowAddSubRecord("lastik")}
-                    className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1 cursor-pointer transition shadow-xs"
-                  >
-                    <Plus size={14} /> Yeni Lastik Ekle
-                  </button>
-                </div>
+                  {/* Birleşik "Lastikleri Değiştir" Alanı (1. Adım: Lastik Seçimi -> 2. Adım: Tek Seferde KM Girişi) */}
+                  {showTireChangePanel && (
+                    <div className="bg-indigo-50/90 border border-indigo-200 rounded-2xl p-4 sm:p-5 shadow-md space-y-4 animate-in fade-in">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-200/70 pb-3">
+                        <div>
+                          <h5 className="text-xs sm:text-sm font-bold text-indigo-950 flex items-center gap-1.5">
+                            <RefreshCw size={15} className="text-indigo-600" />
+                            Lastikleri Değiştir (1. Değişecek Lastikleri Seçin → 2. Güncel KM Girin)
+                          </h5>
+                          <p className="text-[11px] text-indigo-700 mt-0.5">
+                            İster teker teker listeden seçin, ister &quot;Hızlı Değiş (Yedekleri Otomatik Seç)&quot; ile yedek takımı tek tuşla yerleştirin.
+                          </p>
+                        </div>
 
-                {showAddSubRecord === "lastik" && (
-                  <div className="bg-white p-4 rounded-2xl border border-rose-200 shadow-md">
-                    <h5 className="text-xs font-bold text-rose-900 mb-3">Yeni Lastik Kaydı</h5>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs mb-3">
-                      <div>
-                        <label className="text-slate-600 block mb-1">Açıklama</label>
-                        <input
-                          type="text"
-                          value={lastikForm.aciklama}
-                          onChange={(e) => setLastikForm({ ...lastikForm, aciklama: e.target.value })}
-                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
-                        />
+                        {/* Tek Tuşla Yedekleri Otomatik Seçme (Hızlı Değiş) */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select
+                            value={quickSwapTipFilter}
+                            onChange={(e) => {
+                              const nextFilter = e.target.value as "Tümü" | "Yaz" | "Kış" | "4 Mevsim";
+                              setQuickSwapTipFilter(nextFilter);
+                            }}
+                            className="px-2.5 py-1.5 text-xs border border-indigo-300 rounded-xl bg-white text-slate-800 font-medium"
+                          >
+                            <option value="Tümü">Tüm Yedekler</option>
+                            <option value="Kış">Kışlık Yedekler</option>
+                            <option value="Yaz">Yazlık Yedekler</option>
+                            <option value="4 Mevsim">4 Mevsim Yedekler</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => handleAutoFillSpareSelections(quickSwapTipFilter)}
+                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
+                          >
+                            <ArrowLeftRight size={13} />
+                            Hızlı Değiş (Yedekleri Otomatik Seç)
+                          </button>
+                        </div>
                       </div>
+
+                      {/* 1. ADIM: 4 Tekerlek Konumu İçin Listeden Yedek Lastik Seçimi */}
                       <div>
-                        <label className="text-slate-600 block mb-1">Konum</label>
-                        <select
-                          value={lastikForm.konum}
-                          onChange={(e) => setLastikForm({ ...lastikForm, konum: e.target.value as any })}
-                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
+                        <div className="text-xs font-bold text-indigo-950 mb-2 flex items-center justify-between">
+                          <span>1. Adım: Değiştirilecek Tekerlek Konumları İçin Yedek Lastikleri Seçin</span>
+                          {selectedChangeCount > 0 && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setTireChangeSelections({
+                                  "Ön Sol": "",
+                                  "Ön Sağ": "",
+                                  "Arka Sol": "",
+                                  "Arka Sağ": "",
+                                })
+                              }
+                              className="text-[11px] font-semibold text-rose-600 hover:underline cursor-pointer"
+                            >
+                              Seçimleri Temizle
+                            </button>
+                          )}
+                        </div>
+
+                        {spareTires.length === 0 && (
+                          <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs">
+                            Envanterde henüz yedek (boşta) lastik bulunmuyor. Önce &quot;Yeni Lastik Ekle&quot; butonundan lastik ekleyebilirsiniz.
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                          {WHEEL_SLOTS.map((slot) => {
+                            const currentMounted = allTires.find(
+                              (t) => t.takiliMi && t.konum === slot.konum,
+                            );
+                            const selectedVal = tireChangeSelections[slot.konum];
+                            const selectedSpareObj = spareTires.find((s) => s.id === selectedVal);
+
+                            // Kendi konumuna ait yedekleri üstte, diğerlerini altta sırala
+                            const sortedSpares = [
+                              ...spareTires.filter((s) => s.konum === slot.konum),
+                              ...spareTires.filter((s) => s.konum !== slot.konum),
+                            ];
+
+                            return (
+                              <div
+                                key={slot.konum}
+                                className={`p-3 rounded-xl border transition flex flex-col justify-between gap-2.5 ${
+                                  selectedVal
+                                    ? "bg-white border-indigo-500 ring-2 ring-indigo-500/15 shadow-xs"
+                                    : "bg-white/90 border-indigo-200/80"
+                                }`}
+                              >
+                                <div>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className="font-bold text-indigo-950">{slot.konum}</span>
+                                    {selectedVal ? (
+                                      <span className="px-1.5 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 rounded">
+                                        {selectedVal === "__UNMOUNT__" ? "Sökülecek" : "Değişecek"}
+                                      </span>
+                                    ) : (
+                                      <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-slate-100 text-slate-500 rounded">
+                                        Sabit Kalacak
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="text-[11px] text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100 mb-2">
+                                    <span className="block text-[10px] text-slate-400">Şu An Takılı:</span>
+                                    <strong className="text-slate-800">
+                                      {currentMounted
+                                        ? `${currentMounted.marka} • ${currentMounted.tip} (${formatTireEbat(currentMounted)})`
+                                        : "Takılı Lastik Yok"}
+                                    </strong>
+                                  </div>
+
+                                  <label className="text-[11px] font-semibold text-indigo-900 block mb-1">
+                                    Takılacak Yedek Lastik:
+                                  </label>
+                                  <select
+                                    value={selectedVal}
+                                    onChange={(e) => handleSelectTireForSlot(slot.konum, e.target.value)}
+                                    className="w-full px-2.5 py-2 border border-indigo-300 rounded-lg bg-white text-slate-800 text-xs font-medium"
+                                  >
+                                    <option value="">-- Değiştirme (Mevcut Kalsın) --</option>
+                                    {sortedSpares.map((sp) => {
+                                      const usedElsewhere = (
+                                        ["Ön Sol", "Ön Sağ", "Arka Sol", "Arka Sağ"] as const
+                                      ).find((k) => k !== slot.konum && tireChangeSelections[k] === sp.id);
+                                      return (
+                                        <option key={sp.id} value={sp.id}>
+                                          [{sp.konum}] {sp.marka} • {sp.tip} • {formatTireEbat(sp)} ({sp.kondisyon || "İyi"})
+                                          {usedElsewhere ? ` (${usedElsewhere} için seçili)` : ""}
+                                        </option>
+                                      );
+                                    })}
+                                    {currentMounted && (
+                                      <option value="__UNMOUNT__">
+                                        ✕ Mevcut Lastiği Sök (Yedeğe Ayır)
+                                      </option>
+                                    )}
+                                  </select>
+                                </div>
+
+                                {selectedSpareObj && (
+                                  <div className="text-[11px] bg-emerald-50 border border-emerald-200 text-emerald-900 px-2.5 py-1.5 rounded-lg">
+                                    <span className="font-bold">Yeni Takılacak:</span> {selectedSpareObj.marka} (
+                                    {selectedSpareObj.tip} • {formatTireEbat(selectedSpareObj)})
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* 2. ADIM: Tek Seferde Araç Güncel KM Sorulması ve Onay */}
+                      <div className="bg-white p-4 rounded-xl border border-indigo-200 flex flex-wrap items-end justify-between gap-4">
+                        <div className="flex-1 min-w-[240px]">
+                          <label className="text-xs font-bold text-indigo-950 flex items-center gap-1.5 mb-1">
+                            <Gauge size={15} className="text-indigo-600" />
+                            2. Adım: Aracın Güncel KM&apos;si <span className="text-rose-600">*</span>
+                          </label>
+                          <p className="text-[11px] text-slate-500 mb-2">
+                            Seçilen tüm lastiklerin değişimi için araç KM&apos;si tek seferde güncellenir.
+                          </p>
+                          <input
+                            type="number"
+                            min="0"
+                            value={tireChangeKm ?? ""}
+                            onChange={(e) => setTireChangeKm(parseNumInput(e.target.value))}
+                            placeholder={`Mevcut KM: ${vehicle.guncelKm.toLocaleString("tr-TR")}`}
+                            className="w-full sm:max-w-xs px-3 py-2 border border-indigo-300 rounded-xl bg-white font-mono font-bold text-sm text-slate-900"
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowTireChangePanel(false)}
+                            className="px-3.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl cursor-pointer"
+                          >
+                            Vazgeç
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isSaving || selectedChangeCount === 0}
+                            onClick={handleApplyTireChanges}
+                            className="px-5 py-2.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-xl shadow-xs cursor-pointer transition flex items-center gap-1.5"
+                          >
+                            <CheckCircle2 size={15} />
+                            {isSaving
+                              ? "Kaydediliyor..."
+                              : `Seçilen ${selectedChangeCount} Lastiği Değiştir ve KM Güncelle`}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 4 Tekerlek Kartı (Mevcut Takılı Durum Özeti) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                    {WHEEL_SLOTS.map((slot) => {
+                      const mounted = allTires.find((t) => t.takiliMi && t.konum === slot.konum);
+
+                      return (
+                        <div
+                          key={slot.konum}
+                          className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between gap-3"
                         >
-                          <option value="Ön Sol">Ön Sol</option>
-                          <option value="Ön Sağ">Ön Sağ</option>
-                          <option value="Arka Sol">Arka Sol</option>
-                          <option value="Arka Sağ">Arka Sağ</option>
-                          <option value="Stepne">Stepne</option>
-                        </select>
-                      </div>
+                          <div>
+                            <div className="flex items-center justify-between mb-2.5">
+                              <span className="font-bold text-xs text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-lg border border-blue-100">
+                                {slot.konum}
+                              </span>
+                              {mounted ? (
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                    mounted.tip === "Kış"
+                                      ? "bg-sky-100 text-sky-800"
+                                      : mounted.tip === "Yaz"
+                                      ? "bg-amber-100 text-amber-800"
+                                      : "bg-slate-100 text-slate-700"
+                                  }`}
+                                >
+                                  {mounted.tip}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md">
+                                  Takılı Değil
+                                </span>
+                              )}
+                            </div>
+
+                            {mounted ? (
+                              <div className="space-y-1">
+                                <div className="text-sm font-bold text-slate-900">{mounted.marka}</div>
+                                <div className="text-xs text-slate-600 font-mono">{formatTireEbat(mounted)}</div>
+                                {mounted.seriNo && (
+                                  <div className="text-[11px] text-slate-400 font-mono">Seri/DOT: {mounted.seriNo}</div>
+                                )}
+                                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                  <span className="inline-block text-[11px] font-semibold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+                                    Kondisyon: {mounted.kondisyon || "İyi"}
+                                  </span>
+                                  {mounted.islemKm !== undefined && (
+                                    <span className="inline-block text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                                      {mounted.islemKm.toLocaleString("tr-TR")} KM
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="py-4 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                                Bu konumda takılı lastik yok.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 2. Yeni Lastik Ekleme Formu (KM Sormaz, Doğrudan Envantere Ekler) */}
+                {showAddSubRecord === "lastik" && (
+                  <div className="bg-white p-4 sm:p-5 rounded-2xl border border-rose-200 shadow-md space-y-4 animate-in fade-in">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-rose-100 pb-3">
                       <div>
-                        <label className="text-slate-600 block mb-1">Marka</label>
+                        <h5 className="text-xs sm:text-sm font-bold text-rose-900">Yeni Lastik Kaydı Ekle</h5>
+                        <p className="text-[11px] text-slate-500">
+                          Eklenen lastikler aracın lastik listesine kaydedilir; ardından &quot;Lastikleri Değiştir&quot; alanından araca takabilirsiniz.
+                        </p>
+                      </div>
+                      <label className="flex items-center gap-2 text-xs font-semibold text-rose-800 bg-rose-50 px-3 py-1.5 rounded-xl border border-rose-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={lastikForm.setOlarakEkle || false}
+                          onChange={(e) => setLastikForm({ ...lastikForm, setOlarakEkle: e.target.checked })}
+                          className="rounded text-rose-600"
+                        />
+                        <span>4&apos;lü Takım Olarak Ekle (Ön Sol, Ön Sağ, Arka Sol, Arka Sağ)</span>
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                      <div>
+                        <label className="text-slate-700 font-semibold block mb-1">Tekerlek Konumu</label>
+                        {lastikForm.setOlarakEkle ? (
+                          <div className="w-full px-2.5 py-2 border border-slate-200 rounded-lg bg-slate-100 text-slate-600 font-semibold">
+                            4 Tekerlek (Ön/Arka Sol & Sağ)
+                          </div>
+                        ) : (
+                          <select
+                            value={lastikForm.konum}
+                            onChange={(e) => setLastikForm({ ...lastikForm, konum: e.target.value as any })}
+                            className="w-full px-2.5 py-2 border border-slate-300 rounded-lg"
+                          >
+                            <option value="Ön Sol">Ön Sol</option>
+                            <option value="Ön Sağ">Ön Sağ</option>
+                            <option value="Arka Sol">Arka Sol</option>
+                            <option value="Arka Sağ">Arka Sağ</option>
+                            <option value="Stepne">Stepne</option>
+                          </select>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="text-slate-700 font-semibold block mb-1">Marka</label>
                         <input
                           type="text"
-                          value={lastikForm.marka}
+                          value={lastikForm.marka || ""}
                           onChange={(e) => setLastikForm({ ...lastikForm, marka: e.target.value })}
-                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
+                          placeholder="Michelin, Lassa, Continental..."
+                          className="w-full px-2.5 py-2 border border-slate-300 rounded-lg"
                         />
                       </div>
+
                       <div>
-                        <label className="text-slate-600 block mb-1">Tür</label>
+                        <label className="text-slate-700 font-semibold block mb-1">Mevsim / Tür</label>
                         <select
                           value={lastikForm.tip}
                           onChange={(e) => setLastikForm({ ...lastikForm, tip: e.target.value as any })}
-                          className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg"
+                          className="w-full px-2.5 py-2 border border-slate-300 rounded-lg"
                         >
                           <option value="Yaz">Yaz</option>
                           <option value="Kış">Kış</option>
                           <option value="4 Mevsim">4 Mevsim</option>
                         </select>
                       </div>
+
+                      <div>
+                        <label className="text-slate-700 font-semibold block mb-1">Ebat (Örn: 205/55 R16)</label>
+                        <input
+                          type="text"
+                          value={lastikForm.ebat || ""}
+                          onChange={(e) => setLastikForm({ ...lastikForm, ebat: e.target.value })}
+                          placeholder="205/55 R16"
+                          className="w-full px-2.5 py-2 border border-slate-300 rounded-lg font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-slate-700 font-semibold block mb-1">Kondisyon / Durum</label>
+                        <select
+                          value={lastikForm.kondisyon || "Yeni"}
+                          onChange={(e) => setLastikForm({ ...lastikForm, kondisyon: e.target.value as any })}
+                          className="w-full px-2.5 py-2 border border-slate-300 rounded-lg"
+                        >
+                          <option value="Yeni">Yeni</option>
+                          <option value="İyi">İyi</option>
+                          <option value="Orta">Orta</option>
+                          <option value="Aşınmış">Aşınmış</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-slate-700 font-semibold block mb-1">Seri No / DOT Kodu</label>
+                        <input
+                          type="text"
+                          value={lastikForm.seriNo || ""}
+                          onChange={(e) => setLastikForm({ ...lastikForm, seriNo: e.target.value })}
+                          placeholder="DOT-2026-..."
+                          className="w-full px-2.5 py-2 border border-slate-300 rounded-lg font-mono"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-slate-700 font-semibold block mb-1">Satın Alma Tarihi</label>
+                        <input
+                          type="date"
+                          value={lastikForm.satinAlmaTarihi || ""}
+                          onChange={(e) => setLastikForm({ ...lastikForm, satinAlmaTarihi: e.target.value })}
+                          className="w-full px-2.5 py-2 border border-slate-300 rounded-lg"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-slate-700 font-semibold block mb-1">Sonraki Değişim Tarihi</label>
+                        <input
+                          type="date"
+                          value={lastikForm.sonrakiDegisimTarihi || ""}
+                          onChange={(e) => setLastikForm({ ...lastikForm, sonrakiDegisimTarihi: e.target.value })}
+                          className="w-full px-2.5 py-2 border border-slate-300 rounded-lg"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-slate-700 font-semibold block mb-1">Hava Basıncı (PSI / Bar)</label>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={lastikForm.azamiHavaBasinciPsi ?? ""}
+                            onChange={(e) =>
+                              setLastikForm({ ...lastikForm, azamiHavaBasinciPsi: parseNumInput(e.target.value) })
+                            }
+                            placeholder="32 PSI"
+                            className="w-full px-2 py-2 border border-slate-300 rounded-lg font-mono"
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={lastikForm.azamiHavaBasinciBar ?? ""}
+                            onChange={(e) =>
+                              setLastikForm({ ...lastikForm, azamiHavaBasinciBar: parseNumInput(e.target.value) })
+                            }
+                            placeholder="2.2 Bar"
+                            className="w-full px-2 py-2 border border-slate-300 rounded-lg font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-slate-700 font-semibold block mb-1">Tahmini Ömür (KM / Yıl)</label>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <input
+                            type="number"
+                            min="0"
+                            value={lastikForm.omurKm ?? ""}
+                            onChange={(e) => setLastikForm({ ...lastikForm, omurKm: parseNumInput(e.target.value) })}
+                            placeholder="50000 KM"
+                            className="w-full px-2 py-2 border border-slate-300 rounded-lg font-mono"
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            value={lastikForm.omurYil ?? ""}
+                            onChange={(e) => setLastikForm({ ...lastikForm, omurYil: parseNumInput(e.target.value) })}
+                            placeholder="4 Yıl"
+                            className="w-full px-2 py-2 border border-slate-300 rounded-lg font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="sm:col-span-2">
+                        <label className="text-slate-700 font-semibold block mb-1">Açıklama / Not</label>
+                        <input
+                          type="text"
+                          value={lastikForm.aciklama || ""}
+                          onChange={(e) => setLastikForm({ ...lastikForm, aciklama: e.target.value })}
+                          placeholder="Örn: Kışlık takım olarak alındı, depoda numaralı rafta vb."
+                          className="w-full px-2.5 py-2 border border-slate-300 rounded-lg"
+                        />
+                      </div>
                     </div>
-                    <div className="flex justify-end gap-2">
+
+                    <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                       <button
+                        type="button"
                         onClick={() => setShowAddSubRecord(null)}
-                        className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                        className="px-3.5 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
                       >
                         Vazgeç
                       </button>
                       <button
+                        type="button"
                         disabled={isSaving}
                         onClick={() => handleSaveSubRecord("lastik")}
-                        className="px-3 py-1.5 text-xs bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-semibold rounded-lg cursor-pointer"
+                        className="px-4 py-2 text-xs bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-bold rounded-xl cursor-pointer shadow-xs"
                       >
-                        {isSaving ? "Kaydediliyor..." : "Kaydet"}
+                        {isSaving
+                          ? "Kaydediliyor..."
+                          : lastikForm.setOlarakEkle
+                          ? "4'lü Lastik Setini Kaydet"
+                          : "Lastiği Kaydet"}
                       </button>
                     </div>
                   </div>
                 )}
 
-                {vehicle.lastikler && vehicle.lastikler.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    {vehicle.lastikler.map((l) => (
-                      <div
-                        key={l.id}
-                        className="bg-white rounded-2xl border border-slate-200/90 p-4 shadow-xs flex flex-col justify-between gap-3"
+                {/* 3. Kayıtlı Tüm Lastikler, Detay Bilgileri ve Değişim Logları */}
+                <div className="space-y-3.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
+                    <div>
+                      <h5 className="text-xs sm:text-sm font-bold text-slate-800 flex items-center gap-1.5">
+                        <History size={15} className="text-slate-600" />
+                        Kayıtlı Tüm Lastikler ve Hareket Logları
+                      </h5>
+                      <p className="text-[11px] text-slate-500">
+                        Araçtan çıkarılmış (yedeğe alınmış) olsa dahi silinmeyen tüm lastiklerin tüm detayları ve KM logları burada saklanır.
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1 bg-slate-200/70 p-1 rounded-xl text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setTireListFilter("tumu")}
+                        className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
+                          tireListFilter === "tumu"
+                            ? "bg-white text-slate-900 shadow-2xs"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
                       >
-                        <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded text-xs font-bold">
-                                {l.konum}
-                              </span>
-                              <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[11px] font-semibold">
-                                {l.tip}
+                        Tümü ({allTires.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTireListFilter("takili")}
+                        className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
+                          tireListFilter === "takili"
+                            ? "bg-white text-emerald-700 shadow-2xs"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        Araçta Takılı ({mountedTires.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTireListFilter("yedek")}
+                        className={`px-2.5 py-1 rounded-lg font-semibold transition cursor-pointer ${
+                          tireListFilter === "yedek"
+                            ? "bg-white text-amber-700 shadow-2xs"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        Yedek / Çıkarılmış ({spareTires.length})
+                      </button>
+                    </div>
+                  </div>
+
+                  {filteredTireList.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {filteredTireList.map((l) => (
+                        <div
+                          key={l.id}
+                          className={`bg-white rounded-2xl border p-4 shadow-xs flex flex-col justify-between gap-3.5 transition ${
+                            l.takiliMi
+                              ? "border-emerald-200/90 ring-1 ring-emerald-500/10"
+                              : "border-slate-200/90"
+                          }`}
+                        >
+                          {/* Üst Satır: Rozetler & Sil / Değişim İçin Seç Butonları */}
+                          <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-2.5">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded text-xs font-bold">
+                                  {l.konum}
+                                </span>
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
+                                    l.takiliMi
+                                      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                      : "bg-amber-50 text-amber-800 border-amber-200"
+                                  }`}
+                                >
+                                  {l.takiliMi ? "Araçta Takılı" : "Yedek / Çıkarılmış"}
+                                </span>
+                                <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[11px] font-semibold">
+                                  {l.tip}
+                                </span>
+                                <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[11px] font-semibold">
+                                  Kondisyon: {l.kondisyon || "İyi"}
+                                </span>
+                              </div>
+                              <h6 className="text-xs sm:text-sm font-bold text-slate-900 mt-1.5">
+                                {l.marka} — <span className="font-mono text-blue-700">{formatTireEbat(l)}</span>
+                              </h6>
+                              <p className="text-[11px] text-slate-500 mt-0.5">{l.aciklama}</p>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {!l.takiliMi && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const targetSlot =
+                                      l.konum === "Stepne" ? "Ön Sol" : l.konum;
+                                    setShowTireChangePanel(true);
+                                    setShowAddSubRecord(null);
+                                    handleSelectTireForSlot(targetSlot, l.id);
+                                  }}
+                                  className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-semibold cursor-pointer transition"
+                                >
+                                  Değişim İçin Seç
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSubRecord("lastik", l.id)}
+                                title="Lastik Kaydını Kalıcı Olarak Sil"
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Orta Satır: Tüm Lastik Detay Bilgileri */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                              <span className="text-[10px] text-slate-400 block">Son İşlem KM</span>
+                              <span className="font-mono font-bold text-slate-800">
+                                {l.islemKm !== undefined ? `${l.islemKm.toLocaleString("tr-TR")} KM` : "-"}
                               </span>
                             </div>
-                            <h6 className="text-xs font-bold text-slate-800 mt-1.5">{l.aciklama}</h6>
+                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                              <span className="text-[10px] text-slate-400 block">Seri No / DOT</span>
+                              <span className="font-mono font-semibold text-slate-700">
+                                {l.seriNo || "-"}
+                              </span>
+                            </div>
+                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                              <span className="text-[10px] text-slate-400 block">Hava Basıncı</span>
+                              <span className="font-mono font-semibold text-slate-700">
+                                {l.azamiHavaBasinciPsi || l.azamiHavaBasinciBar
+                                  ? `${l.azamiHavaBasinciPsi ? `${l.azamiHavaBasinciPsi} PSI` : ""}${
+                                      l.azamiHavaBasinciPsi && l.azamiHavaBasinciBar ? " / " : ""
+                                    }${l.azamiHavaBasinciBar ? `${l.azamiHavaBasinciBar} Bar` : ""}`
+                                  : "-"}
+                              </span>
+                            </div>
+                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                              <span className="text-[10px] text-slate-400 block">Satın Alma Tarihi</span>
+                              <span className="font-medium text-slate-700">{l.satinAlmaTarihi || "-"}</span>
+                            </div>
+                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                              <span className="text-[10px] text-slate-400 block">Sonraki Değişim</span>
+                              <span className="font-medium text-slate-700">{l.sonrakiDegisimTarihi || "-"}</span>
+                            </div>
+                            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                              <span className="text-[10px] text-slate-400 block">Tahmini Ömür</span>
+                              <span className="font-mono font-semibold text-slate-700">
+                                {l.omurKm || l.omurYil
+                                  ? `${l.omurKm ? `${l.omurKm.toLocaleString("tr-TR")} KM` : ""}${
+                                      l.omurKm && l.omurYil ? " / " : ""
+                                    }${l.omurYil ? `${l.omurYil} Yıl` : ""}`
+                                  : "-"}
+                              </span>
+                            </div>
                           </div>
-                          <button
-                            onClick={() => handleDeleteSubRecord("lastik", l.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+
+                          {/* Alt Satır: Lastik Hareket ve Değişim Logları */}
+                          <div className="bg-slate-50/90 border border-slate-200/80 rounded-xl p-2.5 space-y-1.5">
+                            <div className="text-[11px] font-bold text-slate-700 flex items-center gap-1">
+                              <History size={12} className="text-blue-600" />
+                              Lastik Hareket ve Değişim Logları ({l.loglar?.length || 0})
+                            </div>
+                            {l.loglar && l.loglar.length > 0 ? (
+                              <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                                {l.loglar.map((log) => (
+                                  <div
+                                    key={log.id}
+                                    className="text-[11px] bg-white px-2.5 py-1.5 rounded-lg border border-slate-100 flex flex-wrap items-center justify-between gap-1"
+                                  >
+                                    <span className="text-slate-700 font-medium">{log.islem}</span>
+                                    <div className="flex items-center gap-2 text-[10px] font-mono text-slate-500">
+                                      <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold">
+                                        {log.km.toLocaleString("tr-TR")} KM
+                                      </span>
+                                      <span>{log.tarih}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-[11px] text-slate-400 italic">Henüz log kaydı yok.</div>
+                            )}
+                          </div>
                         </div>
-                        <div className="grid grid-cols-3 gap-2 text-xs">
-                          <div className="bg-slate-50 p-2 rounded-lg">
-                            <span className="text-[10px] text-slate-400 block">Marka & Ebat</span>
-                            <span className="font-semibold text-slate-800">
-                              {l.marka} {l.tabanBoyutu ? `${l.tabanBoyutu}/${l.yanakGenisligi} R${l.jantCapi}` : ""}
-                            </span>
-                          </div>
-                          <div className="bg-slate-50 p-2 rounded-lg">
-                            <span className="text-[10px] text-slate-400 block">Satın Alma</span>
-                            <span className="font-medium text-slate-700">{l.satinAlmaTarihi || "-"}</span>
-                          </div>
-                          <div className="bg-slate-50 p-2 rounded-lg">
-                            <span className="text-[10px] text-slate-400 block">Basınç</span>
-                            <span className="font-mono font-semibold text-slate-700">
-                              {l.azamiHavaBasinciPsi ? `${l.azamiHavaBasinciPsi} PSI` : "-"}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="bg-white rounded-2xl border border-slate-200/80 p-8 text-center text-slate-400 text-xs">
-                    Kayıtlı lastik geçmişi bulunmuyor.
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="bg-white rounded-2xl border border-slate-200/80 p-8 text-center text-slate-400 text-xs">
+                      Seçili filtreye uygun lastik kaydı bulunmuyor.
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* 7. TRAFİK CEZALARI (COMPONENT / CARD BAZLI TASARIM) */}
           {activeTab === "ceza" && (

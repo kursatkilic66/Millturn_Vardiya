@@ -13,6 +13,15 @@ export interface MaintenanceRecord {
   aciklama?: string;
 }
 
+export interface TireLogEntry {
+  id: string;
+  tarih: string;
+  islem: string; // Örn: "Sisteme Eklendi", "Araca Takıldı", "Araçtan Söküldü (Yedeğe Alındı)", "Hızlı Değişim ile Takıldı" vb.
+  konum: "Ön Sol" | "Ön Sağ" | "Arka Sol" | "Arka Sağ" | "Stepne";
+  km: number;
+  aciklama?: string;
+}
+
 export interface TireRecord {
   id: string;
   aciklama: string;
@@ -20,6 +29,11 @@ export interface TireRecord {
   konum: "Ön Sol" | "Ön Sağ" | "Arka Sol" | "Arka Sağ" | "Stepne";
   marka: string;
   tip: "Yaz" | "Kış" | "4 Mevsim";
+  ebat?: string; // Örn: "205/55 R16"
+  kondisyon?: "Yeni" | "İyi" | "Orta" | "Aşınmış";
+  takiliMi?: boolean; // true: Araç üzerinde takılı, false/undefined: Yedek / Depoda (veya çıkarılmış)
+  islemKm?: number; // En son takıldığı / işlem gördüğü araç KM'si
+  sonIslemTarihi?: string;
   tabanBoyutu?: number;
   yanakGenisligi?: number;
   jantCapi?: number;
@@ -29,6 +43,7 @@ export interface TireRecord {
   omurKm?: number;
   azamiHavaBasinciBar?: number;
   azamiHavaBasinciPsi?: number;
+  loglar?: TireLogEntry[];
 }
 
 export interface FineRecord {
